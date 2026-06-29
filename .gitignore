@@ -1,0 +1,11 @@
+.terraform/
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl
+*.tfvars
+tfplan
+*.tfplan
+
+src/_artifacts/
+*.zip
+.env
