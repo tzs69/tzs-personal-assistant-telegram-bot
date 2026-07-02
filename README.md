@@ -1,22 +1,9 @@
-# mail-summarizer-agentcore-mcp-exploration
-I plan to build a telegram bot that helps me read and provide me a detailed summary of my unread emails in my inbox everyday, using a Strands agent in Bedrock AgentCore with MCP for the LLM side of things and Terraform for infrastructure provisioning.
+# tzs-pa-tele-bot
+**tzs-pa-tele-bot** is currently under active development.
+
+This is a project for me to conduct exploratory learning and gain hands-on experience with the following:
+- IaC (Terraform; developmental workflows)
+- Containerization (Little bit here and there)
+- AI Agents (Tool calls and MCP all that stuff)
 
 <br/>
-
-## feature/v1
-### Added basic infra provisioning with terraform.
-- Backend s3 bucket for state file
-- Environments:
-  - Bootstrap environment for backend s3 bucket setup 
-  - Dev environment with modules
-- Modules
-  - Agentcore agent runtime
-  - Webhook Lambda function
-
-### Added placeholder code for modules (for infra provisioning)
-- Agent runtime code under `src/summarizer_agent/`
-- Webhook Lambda function code under `src/webhook_lambda/`
-
-### Created shell scripts for running terraform commands
-- Remote terraform backend initialization/destruction script (`scripts/run_bootstrap.sh`)
-- Terraform dev environment resource provisioning/destruction script (`scripts/run_build_dev.sh`)

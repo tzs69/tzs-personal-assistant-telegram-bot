@@ -1,8 +1,7 @@
 # Includes the actual webhook lambda function resource, its data,
-# dependencies, and related resources including:
+# dependencies, and related resource(s) including:
 #   - IAM resources (IAM role, assume role & permissions policy documents),
-#   - zipped function code data
-#   - function url resource (For external HTTP reqs)
+#   - function url (For external HTTP reqs; tele webhook)
 
 data "aws_iam_policy_document" "webhook_lambda_assume_role" {
   statement {
@@ -17,6 +16,7 @@ data "aws_iam_policy_document" "webhook_lambda_assume_role" {
 }
 
 resource "aws_iam_role" "webhook_lambda_role" {
+  name = var.webhook_lambda_execution_role_name
   assume_role_policy = data.aws_iam_policy_document.webhook_lambda_assume_role.json
 }
 
@@ -39,12 +39,25 @@ data "aws_iam_policy_document" "webhook_lambda_permissions" {
       "bedrock-agentcore:InvokeAgentRuntime",
     ]
     resources = [ 
-      "arn:aws:bedrock-agentcore:*:*:agent-runtime/*"
+      "arn:aws:bedrock-agentcore:*:*:runtime/*"
+    ]
+  }
+  statement {
+    sid = "ECRGetImageAccess"
+    effect = "Allow"
+    actions = [
+      "ecr:BatchGetImage",
+      "ecr:BatchCheckLayerAvailability",
+      "ecr:GetDownloadUrlForLayer"
+    ]
+    resources = [ 
+      "arn:aws:ecr:*:*:repository/*" 
     ]
   }
   statement {
     effect = "Allow"
     actions = [
+      "logs:CreateLogGroup",
       "logs:CreateLogStream",
       "logs:PutLogEvents"
     ]
@@ -57,20 +70,24 @@ resource "aws_iam_role_policy" "webhook_lambda_inline_policy" {
   policy = data.aws_iam_policy_document.webhook_lambda_permissions.json
 }
 
-data "archive_file" "webhook_lambda_code_zip" {
-  type = "zip"
-  source_dir = var.webhook_lambda_code_folder
-  output_path = "${var.zipped_artifact_dump_folder}/webhook_lambda_payload.zip"
-}
 
 resource "aws_lambda_function" "webhook_lambda" {
   function_name = var.webhook_lambda_function_name
   role = aws_iam_role.webhook_lambda_role.arn
+  image_uri = var.webhook_lambda_image_uri
+  package_type = "Image"
 
-  filename = data.archive_file.webhook_lambda_code_zip.output_path
-  package_type = "Zip"
-  runtime = "python3.12"
-  handler = "handler.handler"
+  source_code_hash = var.webhook_lambda_code_zip_sha
+
+  environment {
+    variables = {
+      "AGENT_RUNTIME_ARN" = var.agent_runtime_arn
+      "TELE_PID" = var.tele_pid
+      "AGENT_RUNTIME_REGION" = var.agent_runtime_region
+      "TELE_BOT_API_KEY" = var.tele_bot_api_key
+    }
+  }
+  timeout = 20
 }
 
 resource "aws_lambda_function_url" "webhook_lambda_url_resource" {

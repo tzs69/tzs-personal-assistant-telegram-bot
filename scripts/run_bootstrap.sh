@@ -36,7 +36,7 @@ export_variable() {
 destroy=false
 while [[ "$#" -gt 0 ]]; do
     case "$1" in
-        -destroy)
+        --destroy)
             if [[ $2 == "true" || $2 -eq 1 ]]; then
                 echo -e "${YELLOW}${bold}Running destroy script\n${normal}${NC}"
                 destroy=true
@@ -46,7 +46,8 @@ while [[ "$#" -gt 0 ]]; do
             shift 2
         ;;
         *)
-            echo -e "${YELLOW}Unknown argument detected: -$1, skipping...\n${NC}"
+            echo -e "${YELLOW}Unknown argument detected: $1, skipping...\n${NC}"
+            break
         ;;
     esac
 done

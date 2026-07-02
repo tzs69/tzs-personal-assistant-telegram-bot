@@ -1,3 +1,4 @@
+# Terraform
 .terraform/
 *.tfstate
 *.tfstate.backup
@@ -6,6 +7,20 @@
 tfplan
 *.tfplan
 
+# Artifact files
 src/_artifacts/
 *.zip
+
+# env files 
 .env
+.env.*
+*.env
+*.env.*
+!*.env.example
+!**/.env.example
+
+# compiled code files (.pyc, .pyd, .pyo etc)
+*.py[cod]
+
+
+*.log

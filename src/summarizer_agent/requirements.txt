@@ -1,3 +1,0 @@
-os
-bedrock-agentcore
-strands

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -e
+set +e
 
 # Text formatting for terminal output
 bold=$(tput bold)
@@ -36,16 +36,16 @@ export_variable() {
 cleanup_artifacts() {
     cd ../../../src/_artifacts
 
-    case $1 in -error)
+    case $1 in --error)
         if [[ $2 == "true" || $2 -eq 1 ]]; then
-            echo -e "${RED}${bold}Error encountered, cleaning up runtime artifacts...${normal}${NC}"
+            echo -e "\n${RED}${bold}Error encountered, cleaning up runtime artifacts...${normal}${NC}"
             rm -rf *
             cd ..
             rm -d _artifacts
             exit 1
         fi
     esac
-    echo -e "${GREEN}${bold}Apply/Destroy complete, cleaning up runtime artifacts...${normal}${NC}"
+    echo -e "\n${GREEN}${bold}Apply/Destroy successful, cleaning up runtime artifacts...${normal}${NC}"
     rm -rf *
     cd ..
     rm -d _artifacts
@@ -55,7 +55,7 @@ cleanup_artifacts() {
 destroy=false
 while [[ "$#" -gt 0 ]]; do
     case "$1" in
-        -destroy)
+        --destroy)
             if [[ $2 == "true" || $2 -eq 1 ]]; then
                 echo -e "${YELLOW}${bold}Running destroy script\n${normal}${NC}"
                 destroy=true
@@ -65,7 +65,8 @@ while [[ "$#" -gt 0 ]]; do
             shift 2
         ;;
         *)
-            echo -e "${YELLOW}Unknown argument detected: -$1, skipping...\n${NC}"
+            echo -e "${YELLOW}Unknown argument detected: $1, skipping...\n${NC}"
+            break
         ;;
     esac
 done
@@ -100,33 +101,99 @@ fi
 echo "Config values: "
 export_variable AWS_PROFILE
 export_variable AWS_REGION
+export_variable TELE_PID 1
+export_variable TELE_BOT_API_KEY 1
 
 # Directory to store all deployment/runtime artifacts (empty if alr exists)
 mkdir -p src/_artifacts
 rm -f src/_artifacts/*.zip
 
-# Execute terraform commands
+# Navigate to infra(dev environment) directory and execute terraform commands
 cd infra/environments/dev
 echo -e "\n${GREEN}${bold}Initializing Terraform...${Normal}${NC}"
 
 AWS_PROFILE_STR=$AWS_PROFILE
 AWS_REGION_STR=$AWS_REGION
 BACKEND_S3_BUCKET_NAME_STR=$BACKEND_S3_BUCKET_NAME
-terraform init -input=false\
+if ! terraform init -input=false \
     -backend-config "profile=${AWS_PROFILE_STR}" \
     -backend-config "region=${AWS_REGION_STR}" \
     -backend-config "bucket=${BACKEND_S3_BUCKET_NAME_STR}"\
-    -backend-config "key=dev/terraform.tfstate" 
+    -backend-config "key=dev/terraform.tfstate" \
+    2> terraform_init_error.log; then # Save error output into .log file
 
+    # Handle backend config change error during init with -reconfigure
+    terraform_init_error_message="\n${RED}${bold}Terraform backend initialization failed, exiting.${Normal}${NC}"
+    if grep -q "Backend configuration changed" terraform_init_error.log; then
+        echo -e "\n${YELLOW}${bold}Terraform backend configuration changes detected, reconfiguring...${normal}${NC}"
+        terraform init -reconfigure -input=false \
+        -backend-config "profile=${AWS_PROFILE_STR}" \
+        -backend-config "region=${AWS_REGION_STR}" \
+        -backend-config "bucket=${BACKEND_S3_BUCKET_NAME_STR}"\
+        -backend-config "key=dev/terraform.tfstate" 2> terraform_init_error.log && # Overwrite error logs if error again
+        { 
+            echo -e "\n${YELLOW}${bold}Terraform backend reconfigured and initialized successfully${normal}${NC}";
+            rm terraform_init_error.log
+        } || 
+        {
+            cat terraform_init_error.log
+            rm terraform_init_error.log
+            echo -e "$terraform_init_error_message"
+            cleanup_artifacts --error 1
+        }
+    else
+        cat terraform_init_error.log
+        rm terraform_init_error.log
+        echo -e "$terraform_init_error_message"
+        cleanup_artifacts --error 1
+    fi
+fi
+
+# Terraform plan
 if [[ $destroy == "true" ]]; then
-    terraform plan -input=false -destroy -out=tfplan || cleanup_artifacts -error 1
+    terraform plan -input=false -destroy -out=tfplan || cleanup_artifacts --error 1
     echo -e "\n${RED}${bold}Applying destroy plan...${Normal}${NC}"
 else
-    terraform plan -input=false -out=tfplan || cleanup_artifacts -error 1
+    terraform plan -input=false -out=tfplan || cleanup_artifacts --error 1
     echo -e "\n${GREEN}${bold}Applying built plan...${Normal}${NC}"
 fi
 
-terraform apply -input=false -compact-warnings -auto-approve tfplan || cleanup_artifacts -error 1
+# Terraform apply/destroy
+terraform apply -input=false -compact-warnings -auto-approve tfplan || cleanup_artifacts --error 1
+export WEBHOOK_LAMBDA_URL=$(terraform output -raw webhook_lambda_function_url)
 rm tfplan
 
 cleanup_artifacts
+
+# Run webhook set/delete script
+
+cd ../scripts # cd points to root/src agter artifact cleanup
+if [[ $destroy != "true" ]]; then
+    echo -e "\n${GREEN}${bold}Setting Telegram webhook...${Normal}${NC}"
+    set_webhook_failed_message="\n${RED}${bold}Set Telegram webhook failed${Normal}${NC}"
+    set_webhook_message=$(command python configure_telegram_webhook.py) ||
+    { 
+        echo -e $set_webhook_failed_message
+        exit 1
+    }
+    if [[ $set_webhook_message == "Webhook set successfully" ]]; then
+        echo -e "\n${GREEN}${bold}Telegram webhook set successfully${Normal}${NC}"
+    else
+        echo -e $set_webhook_failed_message
+    fi
+else
+    echo -e "\n${GREEN}${bold}Deleting Telegram webhook...${Normal}${NC}"
+    delete_webhook_failed_message="\n${RED}${bold}Delete Telegram webhook failed${Normal}${NC}"
+    delete_webhook_message=$(command python configure_telegram_webhook.py --delete true) ||
+    { 
+        echo -e $set_webhook_failed_message
+        exit 1
+    }
+
+    if [[ $delete_webhook_message == "Webhook deleted successfully" ]]; then
+        echo -e "\n${GREEN}${bold}Telegram webhook deleted successfully${Normal}${NC}"
+    else
+        echo -e $set_webhook_failed_message
+    fi
+fi
+cd ..

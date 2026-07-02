@@ -1,0 +1,3 @@
+pydantic
+bedrock-agentcore
+strands-agents

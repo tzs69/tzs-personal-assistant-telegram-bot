@@ -1,8 +1,6 @@
 # Includes the actual agentcore agent runtime resource, its data,
-# dependencies, and related resources including:
+# dependencies, and related resource(s) including:
 #   - IAM resources (IAM role, assume role & permissions policy documents),
-#   - zipped agentcore runtime code data
-#   - runtime artifact storage s3 bucket & zipped code uploaded as s3 object
 
 data "aws_iam_policy_document" "agent_runtime_assume_role" {
   statement {
@@ -17,6 +15,7 @@ data "aws_iam_policy_document" "agent_runtime_assume_role" {
 }
 
 resource "aws_iam_role" "agent_runtime_role" {
+  name = var.agent_runtime_execution_role_name
   assume_role_policy = data.aws_iam_policy_document.agent_runtime_assume_role.json
 }
 
@@ -34,17 +33,6 @@ data "aws_iam_policy_document" "agent_runtime_permissions" {
     ]
   }
   statement {
-    effect = "Allow"
-    actions = [
-      "s3:GetObject",
-      "s3:ListBucket"
-    ]
-    resources = [ 
-      "arn:aws:s3:::${var.agent_runtime_artifact_store_s3_bucket_name}", 
-      "arn:aws:s3:::${var.agent_runtime_artifact_store_s3_bucket_name}/*" 
-    ]
-  }
-  statement {
     sid = "MarketPlaceSubscriptionAccess"
     effect = "Allow"
     actions = [ 
@@ -55,8 +43,27 @@ data "aws_iam_policy_document" "agent_runtime_permissions" {
     resources = ["*"]
   }
   statement {
+    sid = "ECRAuth"
+    effect = "Allow"
+    actions = [ "ecr:GetAuthorizationToken" ]
+    resources = [ "*" ]
+  }
+  statement {
+    sid = "ECRGetImageAccess"
     effect = "Allow"
     actions = [
+      "ecr:BatchGetImage",
+      "ecr:BatchCheckLayerAvailability",
+      "ecr:GetDownloadUrlForLayer"
+    ]
+    resources = [ 
+      "arn:aws:ecr:*:*:repository/*" 
+    ]
+  }
+  statement {
+    effect = "Allow"
+    actions = [
+      "logs:CreateLogGroup",
       "logs:CreateLogStream",
       "logs:PutLogEvents"
     ]
@@ -69,45 +76,22 @@ resource "aws_iam_role_policy" "agent_runtime_permission_policy" {
   policy = data.aws_iam_policy_document.agent_runtime_permissions.json
 }
 
-data "archive_file" "agent_runtime_code_zip" {
-  type = "zip"
-  source_dir = var.agent_runtime_code_folder
-  output_path = "${var.zipped_artifact_dump_folder}/agent_runtime_payload.zip"
-}
-
-resource "aws_s3_bucket" "agent_runtime_artifact_storage_bucket" {
-  bucket = var.agent_runtime_artifact_store_s3_bucket_name
-  force_destroy = true
-}
-
-resource "aws_s3_object" "agent_runtime_code_zip_s3_key" {
-  bucket = var.agent_runtime_artifact_store_s3_bucket_name
-  key = var.agent_runtime_code_zip_s3_key
-  source = data.archive_file.agent_runtime_code_zip.output_path
-  depends_on = [ aws_s3_bucket.agent_runtime_artifact_storage_bucket ]
-}
 
 resource "aws_bedrockagentcore_agent_runtime" "agent_runtime" {
   agent_runtime_name = var.agent_runtime_name
   role_arn = aws_iam_role.agent_runtime_role.arn
   
   agent_runtime_artifact {
-    code_configuration {
-      entry_point = ["agent.py"]
-      runtime = "PYTHON_3_12"
-      code {
-        s3 {
-          bucket = var.agent_runtime_artifact_store_s3_bucket_name
-          prefix = var.agent_runtime_code_zip_s3_key
-        }
-      }
+    container_configuration {
+      container_uri = var.agent_runtime_image_uri
     }
-
   }
   network_configuration {
     network_mode = "PUBLIC"
   }
   environment_variables = {
     AGENT_RUNTIME_MODEL_ID = var.agent_runtime_model_id
+    _CODE_SHA = var.agent_runtime_code_zip_sha
   }
+
 }
