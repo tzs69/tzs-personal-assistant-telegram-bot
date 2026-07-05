@@ -24,3 +24,6 @@ src/_artifacts/
 
 
 *.log
+
+
+reference.py
