@@ -60,10 +60,8 @@ resource "docker_image" "agent_runtime_assets_image_build" {
     builder = docker_buildx_builder.asset_image_builder.name
   }
   triggers = {
-    "dockerfile_sha" = filesha1("${var.agent_runtime_code_folder}/Dockerfile")
-    "requirements_sha" = filesha1("${var.agent_runtime_code_folder}/requirements.txt")
+    "agent_runtime_folder_sha" = data.archive_file.agent_runtime_code_zip.output_sha256
     "schemas_sha" = filesha1("../../../src/schemas.py")
-    "agent_sha" = filesha1("${var.agent_runtime_code_folder}/agent.py")
   }
 }
 resource "docker_image" "webhook_lambda_assets_image_build" {
@@ -75,11 +73,8 @@ resource "docker_image" "webhook_lambda_assets_image_build" {
     builder = docker_buildx_builder.asset_image_builder.name
   }
   triggers = {
-    "dockerfile_sha" = filesha1("${var.webhook_lambda_code_folder}/Dockerfile")
-    "requirements_sha" = filesha1("${var.webhook_lambda_code_folder}/requirements.txt")
+    "webhook_lambda_folder_sha" = data.archive_file.webhook_lambda_code_zip.output_sha256
     "schemas_sha" = filesha1("../../../src/schemas.py")
-    "handler_sha" = filesha1("${var.webhook_lambda_code_folder}/handler.py")
-    
   }
 }
 

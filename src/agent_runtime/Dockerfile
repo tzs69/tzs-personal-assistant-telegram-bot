@@ -6,7 +6,7 @@ COPY ./agent_runtime/requirements.txt ./requirements.txt
 
 RUN uv pip install --system --no-cache -r requirements.txt
 
-COPY ./agent_runtime/agent.py ./agent.py
+COPY ./agent_runtime/ ./
 COPY ./schemas.py ./schemas.py
 
 # Agent runtime entry point 

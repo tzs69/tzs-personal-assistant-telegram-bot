@@ -20,3 +20,18 @@ variable "agent_runtime_image_uri" {
 variable "agent_runtime_code_zip_sha" {
   type = string
 }
+
+variable "agent_memory_arn" {
+  type = string
+  description = "associated agent memory arn"
+}
+
+variable "agent_memory_id" {
+  type = string
+  description = "associated agent memory id"
+}
+
+variable "agent_memory_region" {
+  type = string
+  description = "associated agent memory region"
+}
