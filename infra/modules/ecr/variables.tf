@@ -1,37 +1,37 @@
-variable "agent_runtime_assets_ecr_repo_name" {
+variable "agent_runtime_ecr_repo_name" {
   type = string
   description = "AWS ECR repository to store the built agent runtime container image"
 }
 
-variable "webhook_lambda_assets_ecr_repo_name" {
+variable "webhook_lambda_ecr_repo_name" {
   type = string
   description = "AWS ECR repository to store the built webhook lambda container image"
 }
 
-variable "agent_runtime_assets_image_tag" {
+variable "agent_runtime_image_tag_prefix" {
   type = string
-  default = "agent-runtime-latest"
+  default = "agent-runtime"
 }
 
-variable "webhook_lambda_assets_image_tag" {
+variable "webhook_lambda_image_tag_prefix" {
   type = string
-  default = "webhook-lambda-latest"
+  default = "webhook-lambda"
 }
 
-variable "webhook_lambda_code_folder" {
+variable "build_context" {
   type = string
-  description = "Relative path of webhook lambda source code folder"
-  default = "../../../src/webhook_lambda"
+  description = "Shared base context of image builds"
+  default = "../../../src"
 }
 
-variable "agent_runtime_code_folder" {
+variable "lambda_architecture" {
   type = string
-  description = "Relative path of agent runtime source code folder"
-  default = "../../../src/agent_runtime"
+  description = "platform architecture lambda runs on (preferred)"
+  default = "linux/amd64"
 }
 
-variable "zipped_artifact_dump_folder" {
+variable "agentcore_architecture" {
   type = string
-  description = "Relative path to deployment/runtime artifacts dumping folder"
-  default = "../../../src/_artifacts"
+  description = "platform architecture agentcore runs on (bo pian)"
+  default = "linux/arm64"
 }

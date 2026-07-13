@@ -23,20 +23,10 @@ provider "docker" {
   }
 }
 
-resource "aws_ecr_repository" "agent_runtime_assets_ecr_repo" {
-  name = var.agent_runtime_assets_ecr_repo_name
-  force_delete = true
-}
-
-resource "aws_ecr_repository" "webhook_lambda_assets_ecr_repo" {
-  name = var.webhook_lambda_assets_ecr_repo_name
-  force_delete = true
-}
-
 # Multi-architecture builder to accomodate for modular container image builds 
 # - x86_64 -> Lambda
 # - ARM64 -> Agentcore
-resource "docker_buildx_builder" "asset_image_builder" {
+resource "docker_buildx_builder" "image_builder" {
   name = "assets-buildx-builder"
   use = true
   platform = [ "linux/amd64", "linux/arm64" ]
@@ -47,78 +37,79 @@ resource "docker_buildx_builder" "asset_image_builder" {
 }
 
 locals {
-  agent_runtime_assets_image_uri = "${aws_ecr_repository.agent_runtime_assets_ecr_repo.repository_url}:${var.agent_runtime_assets_image_tag}"
-  webhook_lambda_assets_image_uri = "${aws_ecr_repository.webhook_lambda_assets_ecr_repo.repository_url}:${var.webhook_lambda_assets_image_tag}"
+  src_root = abspath("${path.module}/../../../src")
+  webhook_lambda_source_dir = "${local.src_root}/webhook_lambda"
+  agent_runtime_source_dir = "${local.src_root}/agent_runtime"
+  shared_dir = "${local.src_root}/shared"
+
+  # Source code for each service (exclusively owned + shared)
+  # Direct source code files (excl. shared)
+  ignore_pattern = "(^|/)__pycache__(/|$)|\\.py[cod]$"
+  webhook_lambda_source_files = sort([
+    for source_file in fileset(local.webhook_lambda_source_dir, "**") : source_file
+    if !can(regex(local.ignore_pattern, source_file))
+  ])
+  agent_runtime_source_files = sort([
+    for source_file in fileset(local.agent_runtime_source_dir, "**") : source_file
+    if !can(regex(local.ignore_pattern, source_file))
+  ])
+
+  # Lambda - Agentcore shared files (schema file as of now)
+  lambda_agentcore_shared_file_names = [ "schemas.py" ]
+  lambda_agentcore_shared_files = sort([
+    for shared_file in fileset(local.shared_dir, "**") : shared_file
+    if (
+      !can(regex(local.ignore_pattern, shared_file)) 
+      && contains(local.lambda_agentcore_shared_file_names, shared_file)
+    )
+  ])
+
+  service_images = {
+    webhook_lambda = {
+      ecr_repo_name = var.webhook_lambda_ecr_repo_name
+      image_tag_prefix = var.webhook_lambda_image_tag_prefix
+      build_context = var.build_context
+      builder_name = docker_buildx_builder.image_builder.name
+      platform = var.lambda_architecture
+      dockerfile = "${local.webhook_lambda_source_dir}/Dockerfile"
+      source_dir = local.webhook_lambda_source_dir
+      source_files = local.webhook_lambda_source_files
+      shared_files = local.lambda_agentcore_shared_files
+    }
+    agent_runtime = {
+      ecr_repo_name = var.agent_runtime_ecr_repo_name
+      image_tag_prefix = var.agent_runtime_image_tag_prefix
+      build_context = var.build_context
+      builder_name = docker_buildx_builder.image_builder.name
+      platform = var.agentcore_architecture
+      dockerfile = "${local.agent_runtime_source_dir}/Dockerfile"
+      source_dir = local.agent_runtime_source_dir
+      source_files = local.agent_runtime_source_files
+      shared_files = local.lambda_agentcore_shared_files
+    }
+  }
+
+  # Trigger service image updates (If the service's owned source code changes)
+  code_shas = {
+    for service_name, service_vars in local.service_images : service_name => sha256(
+      join("", concat(
+        [ for source_file in service_vars.source_files : filesha256("${service_vars.source_dir}/${source_file}") ],
+        [ for shared_file in service_vars.shared_files : filesha256("${local.shared_dir}/${shared_file}") ]
+      ))
+    )
+  }
 }
 
-resource "docker_image" "agent_runtime_assets_image_build" {
-  name = local.agent_runtime_assets_image_uri
-  build {
-    context = "../../../src"
-    dockerfile = "${var.agent_runtime_code_folder}/Dockerfile"
-    platform = "linux/arm64"
-    builder = docker_buildx_builder.asset_image_builder.name
-  }
-  triggers = {
-    "agent_runtime_folder_sha" = data.archive_file.agent_runtime_code_zip.output_sha256
-    "schemas_sha" = filesha1("../../../src/schemas.py")
-  }
-}
-resource "docker_image" "webhook_lambda_assets_image_build" {
-  name = local.webhook_lambda_assets_image_uri
-  build {
-    context = "../../../src"
-    dockerfile = "${var.webhook_lambda_code_folder}/Dockerfile"
-    platform = "linux/amd64"
-    builder = docker_buildx_builder.asset_image_builder.name
-  }
-  triggers = {
-    "webhook_lambda_folder_sha" = data.archive_file.webhook_lambda_code_zip.output_sha256
-    "schemas_sha" = filesha1("../../../src/schemas.py")
-  }
-}
+# Modular deployment of each service's container images
+module "service_images" {
+  source = "../ecr_image"
+  for_each = local.service_images
 
-resource "docker_registry_image" "agent_runtime_assets_image" {
-  name = local.agent_runtime_assets_image_uri
-  triggers = {
-    image_id = docker_image.agent_runtime_assets_image_build.image_id
-  }
-  keep_remotely = false
-}
-
-resource "docker_registry_image" "webhook_lambda_assets_image" {
-  name = local.webhook_lambda_assets_image_uri
-  triggers = {
-    image_id = docker_image.webhook_lambda_assets_image_build.image_id
-  }
-  keep_remotely = false
-}
-
-
-# Workaround to trigger infra build updates when source code changes as ecr image tag 
-# doesnt change even if source code the container image is built upon changes
-resource "terraform_data" "copy_schema" {
-  provisioner "local-exec" {
-    command = "cp ../../../src/schemas.py ${var.agent_runtime_code_folder}/schemas.py && cp ../../../src/schemas.py ${var.webhook_lambda_code_folder}/schemas.py"
-  }
-}
-
-data "archive_file" "webhook_lambda_code_zip" {
-  type = "zip"
-  source_dir = var.webhook_lambda_code_folder
-  output_path = "${var.zipped_artifact_dump_folder}/webhook_lambda_payload.zip"
-  depends_on = [ terraform_data.copy_schema ]
-}
-data "archive_file" "agent_runtime_code_zip" {
-  type = "zip"
-  source_dir = var.agent_runtime_code_folder
-  output_path = "${var.zipped_artifact_dump_folder}/agent_runtime_payload.zip"
-  depends_on = [ terraform_data.copy_schema ]
-}
-
-resource "terraform_data" "remove_schema" {
-  provisioner "local-exec" {
-    command = "rm -f ${var.webhook_lambda_code_folder}/schemas.py && rm -f ${var.agent_runtime_code_folder}/schemas.py"
-  }
-  depends_on = [ data.archive_file.webhook_lambda_code_zip, data.archive_file.agent_runtime_code_zip ]
+  ecr_repo_name = each.value.ecr_repo_name
+  image_tag_prefix = each.value.image_tag_prefix
+  build_context = each.value.build_context
+  builder_name = each.value.builder_name
+  platform = each.value.platform
+  dockerfile = each.value.dockerfile
+  source_code_sha = local.code_shas[each.key]
 }
