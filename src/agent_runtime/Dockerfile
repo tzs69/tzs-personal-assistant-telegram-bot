@@ -6,8 +6,8 @@ COPY ./agent_runtime/requirements.txt ./requirements.txt
 
 RUN uv pip install --system --no-cache -r requirements.txt
 
-COPY ./agent_runtime/agent.py ./agent.py
-COPY ./schemas.py ./schemas.py
+COPY ./agent_runtime/ ./
+COPY ./shared/schemas.py ./schemas.py
 
 # Agent runtime entry point 
 EXPOSE 8080

@@ -61,13 +61,22 @@ data "aws_iam_policy_document" "agent_runtime_permissions" {
     ]
   }
   statement {
+    sid = "BedrockAgentCoreMemoryAccess"
+    effect = "Allow"
+    actions = [ 
+      "bedrock-agentcore:CreateEvent",
+      "bedrock-agentcore:RetrieveMemoryRecords"
+    ]
+    resources = [ var.agent_memory_arn ]
+  }
+  statement {
     effect = "Allow"
     actions = [
       "logs:CreateLogGroup",
       "logs:CreateLogStream",
       "logs:PutLogEvents"
     ]
-    resources = [ "arn:aws:logs:*:*:log-group:/aws/bedrock-agentcore/*" ]
+    resources = [ "arn:aws:logs:*:*:log-group:/aws/bedrock-agentcore/runtimes/*" ]
   }
 }
 
@@ -91,7 +100,9 @@ resource "aws_bedrockagentcore_agent_runtime" "agent_runtime" {
   }
   environment_variables = {
     AGENT_RUNTIME_MODEL_ID = var.agent_runtime_model_id
-    _CODE_SHA = var.agent_runtime_code_zip_sha
+    _CODE_SHA = var.agent_runtime_code_zip_sha # Trigger for rebuild (see ecs main.tf ard the end there)
+    AGENT_MEMORY_ID = var.agent_memory_id
+    AGENT_MEMORY_REGION = var.agent_memory_region
   }
 
 }

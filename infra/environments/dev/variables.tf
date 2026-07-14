@@ -47,24 +47,25 @@ variable "agent_runtime_region" {
 }
 
 
-variable "agent_runtime_assets_ecr_repo_name" {
+variable "agent_runtime_ecr_repo_name" {
   type = string
   description = "AWS ECR repository to store the built agent runtime container image"
   default = "tzs-pa-tele-bot-dev-agent-runtime-assets-repo"
 }
 
-variable "webhook_lambda_assets_ecr_repo_name" {
+variable "webhook_lambda_ecr_repo_name" {
   type = string
   description = "AWS ECR repository to store the built webhook lambda container image"
   default = "tzs-pa-tele-bot-dev-webhook-lambda-assets-repo"
 }
 
-variable "agent_runtime_assets_image_tag" {
+
+variable "agent_memory_name" {
   type = string
-  default = "agent-runtime-latest"
+  description = "Name of the agentcore memory associated with the agent runtime"
 }
 
-variable "webhook_lambda_assets_image_tag" {
+variable "agent_memory_execution_role_name" {
   type = string
-  default = "webhook-lambda-latest"
+  description = "Name of the IAM execution role used by the agentcore agent memory"
 }
