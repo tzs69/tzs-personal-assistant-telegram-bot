@@ -1,6 +1,6 @@
-output "agent_runtime_image_uri" {
-  value = module.service_images["agent_runtime"].image_uri
-  description = "Container image uri reference for agentcore agent runtime provisioning use"
+output "router_agent_image_uri" {
+  value = module.service_images["router_agent"].image_uri
+  description = "Container image uri reference for router agent provisioning use"
 }
 
 output "webhook_lambda_image_uri" {
@@ -8,9 +8,9 @@ output "webhook_lambda_image_uri" {
   description = "container image uri reference for webhook lambda provisioning use"
 }
 
-output "agent_runtime_image_digest" {
-  value = module.service_images["agent_runtime"].image_digest
-  description = "image digest of ecr registry image for agent runtime source code"
+output "router_agent_image_digest" {
+  value = module.service_images["router_agent"].image_digest
+  description = "image digest of ecr registry image for router agent source code"
 }
 
 output "webhook_lambda_image_digest" {

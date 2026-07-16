@@ -39,7 +39,7 @@ resource "docker_buildx_builder" "image_builder" {
 locals {
   src_root = abspath("${path.module}/../../../src")
   webhook_lambda_source_dir = "${local.src_root}/webhook_lambda"
-  agent_runtime_source_dir = "${local.src_root}/agent_runtime"
+  router_agent_source_dir = "${local.src_root}/agentcore/router_agent"
   shared_dir = "${local.src_root}/shared"
 
   # Source code for each service (exclusively owned + shared)
@@ -49,8 +49,8 @@ locals {
     for source_file in fileset(local.webhook_lambda_source_dir, "**") : source_file
     if !can(regex(local.ignore_pattern, source_file))
   ])
-  agent_runtime_source_files = sort([
-    for source_file in fileset(local.agent_runtime_source_dir, "**") : source_file
+  router_agent_source_files = sort([
+    for source_file in fileset(local.router_agent_source_dir, "**") : source_file
     if !can(regex(local.ignore_pattern, source_file))
   ])
 
@@ -61,6 +61,14 @@ locals {
     if (
       !can(regex(local.ignore_pattern, shared_file)) 
       && contains(local.lambda_agentcore_shared_file_names, shared_file)
+    )
+  ])
+  agentcore_shared_file_names = [ "agentcore_memory.py" ]
+  agentcore_shared_files = sort([
+    for shared_file in fileset(local.shared_dir, "**") : shared_file
+    if (
+      !can(regex(local.ignore_pattern, shared_file))
+      && contains(local.agentcore_shared_file_names, shared_file)
     )
   ])
 
@@ -76,16 +84,16 @@ locals {
       source_files = local.webhook_lambda_source_files
       shared_files = local.lambda_agentcore_shared_files
     }
-    agent_runtime = {
-      ecr_repo_name = var.agent_runtime_ecr_repo_name
-      image_tag_prefix = var.agent_runtime_image_tag_prefix
+    router_agent = {
+      ecr_repo_name = var.router_agent_ecr_repo_name
+      image_tag_prefix = var.router_agent_image_tag_prefix
       build_context = var.build_context
       builder_name = docker_buildx_builder.image_builder.name
       platform = var.agentcore_architecture
-      dockerfile = "${local.agent_runtime_source_dir}/Dockerfile"
-      source_dir = local.agent_runtime_source_dir
-      source_files = local.agent_runtime_source_files
-      shared_files = local.lambda_agentcore_shared_files
+      dockerfile = "${local.router_agent_source_dir}/Dockerfile"
+      source_dir = local.router_agent_source_dir
+      source_files = local.router_agent_source_files
+      shared_files = concat(local.lambda_agentcore_shared_files, local.agentcore_shared_files)
     }
   }
 
