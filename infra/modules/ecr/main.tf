@@ -38,7 +38,7 @@ resource "docker_buildx_builder" "image_builder" {
 
 locals {
   src_root = abspath("${path.module}/../../../src")
-  webhook_lambda_source_dir = "${local.src_root}/webhook_lambda"
+  webhook_lambda_source_dir = "${local.src_root}/lambda/webhook"
   router_agent_source_dir = "${local.src_root}/agentcore/router_agent"
   shared_dir = "${local.src_root}/shared"
 
