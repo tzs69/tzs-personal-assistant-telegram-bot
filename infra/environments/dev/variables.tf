@@ -2,10 +2,12 @@
 variable "agent_memory_name" {
   type = string
   description = "Name of the agentcore memory associated with the agent runtime"
+  default = "tzs_pa_tele_bot_dev_agent_memory"
 }
 variable "agent_memory_execution_role_name" {
   type = string
   description = "Name of the IAM execution role used by the agentcore agent memory"
+  default = "tzs-pa-tele-bot-dev-agent-memory-execution-role"
 }
 variable "tele_pid" {
   type = string

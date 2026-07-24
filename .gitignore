@@ -7,10 +7,6 @@
 tfplan
 *.tfplan
 
-# Artifact files
-src/_artifacts/
-*.zip
-
 # env files 
 .env
 .env.*
@@ -22,6 +18,8 @@ src/_artifacts/
 # compiled code files (.pyc, .pyd, .pyo etc)
 *.py[cod]
 
+.pytest_cache/
+*.egg-info/
 
 *.log
 

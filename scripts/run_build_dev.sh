@@ -9,6 +9,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color (Resets terminal to default)
+PROJECT_ROOT=$(pwd)
 
 # Export environment variables helper
 export_variable() {
@@ -32,23 +33,22 @@ export_variable() {
     fi
 }
 
-# Artifacts cleanup helper to be run from ./infra/environments/dev only
-cleanup_artifacts() {
-    cd ../../../src/_artifacts
+setup_test_venv() {
+    if [[ ! -d ".venv" ]]; then
+        echo -e "\n${BLUE}Creating Python virtual environment for tests...${NC}"
+        python -m venv .venv || exit 1
+    fi
 
-    case $1 in --error)
-        if [[ $2 == "true" || $2 -eq 1 ]]; then
-            echo -e "\n${RED}${bold}Error encountered, cleaning up runtime artifacts...${normal}${NC}"
-            rm -rf *
-            cd ..
-            rm -d _artifacts
-            exit 1
-        fi
-    esac
-    echo -e "\n${GREEN}${bold}Apply/Destroy successful, cleaning up runtime artifacts...${normal}${NC}"
-    rm -rf *
-    cd ..
-    rm -d _artifacts
+    if [[ -x "$PROJECT_ROOT/.venv/Scripts/python.exe" ]]; then
+        TEST_PYTHON="$PROJECT_ROOT/.venv/Scripts/python.exe"
+    elif [[ -x "$PROJECT_ROOT/.venv/Scripts/python" ]]; then
+        TEST_PYTHON="$PROJECT_ROOT/.venv/Scripts/python"
+    else
+        TEST_PYTHON="$PROJECT_ROOT/.venv/bin/python"
+    fi
+
+    echo -e "\n${BLUE}Installing Python test dependencies...${NC}"
+    "$TEST_PYTHON" -m pip install -e ".[dev]" || exit 1
 }
 
 # Destroy or apply-only terraform script
@@ -103,10 +103,17 @@ export_variable AWS_PROFILE
 export_variable AWS_REGION
 export_variable TELE_PID 1
 export_variable TELE_BOT_API_KEY 1
+if [[ -z "$AGENT_RUNTIME_MODEL_ID" ]]; then
+    echo -e "${RED}${bold}AGENT_RUNTIME_MODEL_ID not set, exiting.${normal}${NC}"
+    exit 1
+else
+    export TF_VAR_router_agent_model_id="$AGENT_RUNTIME_MODEL_ID"
+    echo "router_agent_model_id=$AGENT_RUNTIME_MODEL_ID"
+fi
 
-# Directory to store all deployment/runtime artifacts (empty if alr exists)
-mkdir -p src/_artifacts
-rm -f src/_artifacts/*.zip
+if [[ $destroy != "true" ]]; then
+    setup_test_venv
+fi
 
 # Navigate to infra(dev environment) directory and execute terraform commands
 cd infra/environments/dev
@@ -139,35 +146,40 @@ if ! terraform init -input=false \
             cat terraform_init_error.log
             rm terraform_init_error.log
             echo -e "$terraform_init_error_message"
-            cleanup_artifacts --error 1
+            cd "$PROJECT_ROOT" || exit 1
+            exit 1
         }
     else
         cat terraform_init_error.log
         rm terraform_init_error.log
         echo -e "$terraform_init_error_message"
-        cleanup_artifacts --error 1
+        cd "$PROJECT_ROOT" || exit 1
+        exit 1
     fi
 fi
 
 # Terraform plan
 if [[ $destroy == "true" ]]; then
-    terraform plan -input=false -destroy -out=tfplan || cleanup_artifacts --error 1
+    terraform plan -input=false -destroy -out=tfplan || exit 1
     echo -e "\n${RED}${bold}Applying destroy plan...${Normal}${NC}"
 else
-    terraform plan -input=false -out=tfplan || cleanup_artifacts --error 1
+    terraform plan -input=false -out=tfplan || exit 1
     echo -e "\n${GREEN}${bold}Applying built plan...${Normal}${NC}"
 fi
 
 # Terraform apply/destroy
-terraform apply -input=false -compact-warnings -auto-approve tfplan || cleanup_artifacts --error 1
-export WEBHOOK_LAMBDA_URL=$(terraform output -raw webhook_lambda_function_url)
+terraform apply -input=false -compact-warnings -auto-approve tfplan || exit 1
 rm tfplan
 
-cleanup_artifacts
+if [[ $destroy != "true" ]]; then
+    export WEBHOOK_LAMBDA_URL=$(terraform output -raw webhook_lambda_function_url)
+    export AGENT_RUNTIME_ARN=$(terraform output -raw agent_runtime_arn)
+    export AGENT_RUNTIME_REGION=$(terraform output -raw agent_runtime_region)
+fi
 
 # Run webhook set/delete script
 
-cd ../scripts # cd points to root/src agter artifact cleanup
+cd $PROJECT_ROOT/scripts
 if [[ $destroy != "true" ]]; then
     echo -e "\n${GREEN}${bold}Setting Telegram webhook...${Normal}${NC}"
     set_webhook_failed_message="\n${RED}${bold}Set Telegram webhook failed${Normal}${NC}"
@@ -178,6 +190,12 @@ if [[ $destroy != "true" ]]; then
     }
     if [[ $set_webhook_message == "Webhook set successfully" ]]; then
         echo -e "\n${GREEN}${bold}Telegram webhook set successfully${Normal}${NC}"
+
+        # Run full test suite if webhook successfully set
+        echo -e "\n${GREEN}${bold}Running full pytest suite...${normal}${NC}"
+        export RUN_LIVE_INTEGRATION_TESTS=1
+        cd "$PROJECT_ROOT"
+        "$TEST_PYTHON" -m pytest -v || exit 1
     else
         echo -e $set_webhook_failed_message
     fi
@@ -196,4 +214,4 @@ else
         echo -e $set_webhook_failed_message
     fi
 fi
-cd ..
+cd $PROJECT_ROOT

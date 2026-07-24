@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tzs-personal-assistant-telegram-bot"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "boto3",
+    "pydantic",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "requests",
+]
+
+agentcore = [
+    "bedrock-agentcore",
+    "strands-agents",
+]
+
+[tool.setuptools]
+py-modules = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: tests that call live external services",
+]

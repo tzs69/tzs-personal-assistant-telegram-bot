@@ -8,7 +8,7 @@ import sys
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 
 TELE_BOT_API_KEY = os.environ.get("TELE_BOT_API_KEY")
-WEBHOOK_LAMBDA_URL = os.environ.get("WEBHOOK_LAMBDA_URL")
+
 
 def main():
 
@@ -27,10 +27,18 @@ def main():
         print("invalid argument/option detected, running normal setWebhook script")
 
     webhook_command = "setWebhook" if not run_destroy else "deleteWebhook"
-    response = requests.post(
-        f"https://api.telegram.org/bot{TELE_BOT_API_KEY}/{webhook_command}", 
-        data={"url": WEBHOOK_LAMBDA_URL}
-    )
+    configure_webhook_url = f"https://api.telegram.org/bot{TELE_BOT_API_KEY}/{webhook_command}"
+
+    data = None
+    if not run_destroy:
+        webhook_lambda_url = os.environ.get("WEBHOOK_LAMBDA_URL")
+        if not webhook_lambda_url:
+            print("WEBHOOK_LAMBDA_URL not set")
+            sys.exit(1)
+
+        data = {"url": webhook_lambda_url}
+
+    response = requests.post(configure_webhook_url, data=data)
 
     response_json = response.json()
     ok = response_json.get("ok", "")
