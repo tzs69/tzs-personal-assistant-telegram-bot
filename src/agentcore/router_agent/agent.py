@@ -7,7 +7,8 @@ from strands import Agent
 from strands.agent import AgentResult
 from schemas import TelegramMessageUserInput, TelegramMessageAgentResponse
 from agentcore_memory import MemoryManagementService
-
+from memory_tools import create_long_term_memory_tool
+from system_prompt import SYSTEM_PROMPT
 
 logging.basicConfig(level=logging.INFO, force=True)
 logger = logging.getLogger(__name__)
@@ -18,16 +19,7 @@ _SRC_CODE_SHA = os.environ.get("_CODE_SHA") # For update triggering in terraform
 AGENT_RUNTIME_MODEL_ID = os.environ.get("AGENT_RUNTIME_MODEL_ID")
 AGENT_MEMORY_ID = os.environ.get("AGENT_MEMORY_ID")
 AGENT_MEMORY_REGION = os.environ.get("AGENT_MEMORY_REGION", "us-east-1")
-SYSTEM_PROMPT = '''
-You are a general knowledge question-answer telegram bot.
-You will receive general knowledge user queries, and your job is to 
-answer them in a clear and concise manner (Not more than 100 words).
-'''
-
-agent = Agent(
-    model=AGENT_RUNTIME_MODEL_ID,
-    system_prompt=SYSTEM_PROMPT
-)
+MAX_SHORT_TERM_MEMORY_TURNS = 10
 
 memory = MemoryManagementService(
     memory_id=AGENT_MEMORY_ID,
@@ -65,31 +57,26 @@ def invoke(payload):
     user_message = TelegramMessageUserInput.model_validate(payload)
 
     try:
-        # Fetch past convo chunks relevant to query and append to system prompt dynamically
-        try:
-            memories_fetched = ""
-            past_memories = memory.retrieve_relevant_memories(user_query=user_message)
+        short_term_messages = memory.fetch_short_term_memories(
+            sender_id=str(user_message.sender_id),
+            max_turns=MAX_SHORT_TERM_MEMORY_TURNS
+        )
+        logger.info(f"Loaded {len(short_term_messages)} short-term memory messages")
 
-            if isinstance(past_memories, str) and len(past_memories) > 0:
-                memories_fetched = f"""
-                \nThe below list contains relevant past conversational context chunks sorted in
-                descending order of semantic similarity with regards to the user's query:\n
-                {past_memories}
-                """
-                logger.info("Agent memory chunks successfully retrieved and dynamically added to system prompt")
-        except Exception:
-            logger.exception("Failed to retrieve relevant memories")
-        
-        if len(memories_fetched) > 0:
-            agent.system_prompt += memories_fetched
+        long_term_memory_tool = create_long_term_memory_tool(
+            memory=memory,
+            sender_id=str(user_message.sender_id)
+        )
 
-        try:
-            response: AgentResult = agent(user_message.text)
-        finally:
-            # Reset to base even if agent invocation fails after memory injection.
-            if memories_fetched:
-                agent.system_prompt = SYSTEM_PROMPT
-                logger.info("System prompt reverted to base")
+        request_agent = Agent(
+            model=AGENT_RUNTIME_MODEL_ID,
+            system_prompt=SYSTEM_PROMPT,
+            messages=short_term_messages,
+            tools=[
+                long_term_memory_tool,
+            ]
+        )
+        response: AgentResult = request_agent(user_message.text)
 
     except Exception as e:
         return _raise_error_message_generic(

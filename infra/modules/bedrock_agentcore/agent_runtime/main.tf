@@ -65,6 +65,7 @@ data "aws_iam_policy_document" "agent_runtime_permissions" {
     effect = "Allow"
     actions = [ 
       "bedrock-agentcore:CreateEvent",
+      "bedrock-agentcore:ListEvents",
       "bedrock-agentcore:RetrieveMemoryRecords"
     ]
     resources = [ var.agent_memory_arn ]
