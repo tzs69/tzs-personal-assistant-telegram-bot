@@ -7,5 +7,5 @@ output "agent_memory_id" {
 }
 
 output "agent_memory_region" {
-    value = aws_bedrockagentcore_memory.agent_memory.region
+  value = aws_bedrockagentcore_memory.agent_memory.region
 }

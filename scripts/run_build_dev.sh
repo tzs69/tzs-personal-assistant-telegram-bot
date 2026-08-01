@@ -115,6 +115,13 @@ if [[ $destroy != "true" ]]; then
     setup_test_venv
 fi
 
+formatting_failed=$(terraform fmt -check -recursive infra)
+if [[ -n $formatting_failed ]]; then
+    echo -e "${RED}${bold}Terraform fmt failed on the following files:${normal}${NC}"
+    echo "${formatting_failed}"
+    exit 1
+fi
+
 # Navigate to infra(dev environment) directory and execute terraform commands
 cd infra/environments/dev
 echo -e "\n${GREEN}${bold}Initializing Terraform...${Normal}${NC}"
@@ -157,6 +164,8 @@ if ! terraform init -input=false \
         exit 1
     fi
 fi
+
+
 
 # Terraform plan
 if [[ $destroy == "true" ]]; then
