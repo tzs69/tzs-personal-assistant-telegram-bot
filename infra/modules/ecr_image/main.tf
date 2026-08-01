@@ -9,7 +9,7 @@ terraform {
 
 
 resource "aws_ecr_repository" "this" {
-  name = var.ecr_repo_name
+  name         = var.ecr_repo_name
   force_delete = true
 }
 
@@ -21,10 +21,10 @@ locals {
 resource "docker_image" "this" {
   name = local.image_uri
   build {
-    context = var.build_context
+    context    = var.build_context
     dockerfile = var.dockerfile
-    platform = var.platform
-    builder = var.builder_name
+    platform   = var.platform
+    builder    = var.builder_name
   }
   triggers = {
     source_code_sha = var.source_code_sha
@@ -34,7 +34,7 @@ resource "docker_image" "this" {
 resource "docker_registry_image" "this" {
   name = local.image_uri
   triggers = {
-    image_id = docker_image.this.image_id
+    image_id        = docker_image.this.image_id
     source_code_sha = var.source_code_sha
   }
   keep_remotely = false

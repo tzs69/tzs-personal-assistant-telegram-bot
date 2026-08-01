@@ -12,7 +12,7 @@ provider "aws" {
 }
 
 resource "aws_s3_bucket" "terraform-state-file-s3-bucket" {
-  bucket = var.backend_s3_bucket_name
+  bucket        = var.backend_s3_bucket_name
   force_destroy = true
 }
 resource "aws_s3_bucket_versioning" "state-file-bucket-versioning" {
