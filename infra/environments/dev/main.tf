@@ -25,6 +25,8 @@ module "invoker_lambda_function" {
   source                             = "../../modules/lambda/invoker"
   invoker_lambda_function_name       = var.invoker_lambda_function_name
   invoker_lambda_execution_role_name = var.invoker_lambda_execution_role_name
+  tele_pid                           = var.tele_pid
+  tele_bot_api_key                   = var.tele_bot_api_key
   agent_runtime_arn                  = module.router_agent.agent_runtime_arn
   agent_runtime_region               = var.router_agent_region
   invoker_lambda_image_uri           = module.ecr.invoker_lambda_image_uri
@@ -36,10 +38,8 @@ module "webhook_lambda_function" {
   source                             = "../../modules/lambda/webhook"
   webhook_lambda_function_name       = var.webhook_lambda_function_name
   webhook_lambda_execution_role_name = var.webhook_lambda_execution_role_name
-  agent_runtime_region               = var.router_agent_region
   tele_pid                           = var.tele_pid
   tele_bot_api_key                   = var.tele_bot_api_key
-  agent_runtime_arn                  = module.router_agent.agent_runtime_arn
   webhook_lambda_image_uri           = module.ecr.webhook_lambda_image_uri
   webhook_lambda_code_zip_sha        = module.ecr.webhook_lambda_image_digest
   webhook_invoker_queue_arn          = module.webhook_invoker_sqs.queue_arn

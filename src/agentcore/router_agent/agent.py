@@ -5,7 +5,7 @@ from typing import Dict, List
 from bedrock_agentcore import BedrockAgentCoreApp
 from strands import Agent
 from strands.agent import AgentResult
-from schemas import TelegramMessageUserInput, TelegramMessageAgentResponse
+from schemas import TelegramMessageAgentInput, TelegramMessageAgentResponse
 from agentcore_memory import MemoryManagementService
 from memory_tools import create_long_term_memory_tool
 from system_prompt import SYSTEM_PROMPT
@@ -54,7 +54,7 @@ def invoke(payload):
         )
 
     logger.info(f"Valid AgentCore invocation payload received from webhook Lambda:\n{json.dumps(payload)}")
-    user_message = TelegramMessageUserInput.model_validate(payload)
+    user_message = TelegramMessageAgentInput.model_validate(payload)
 
     try:
         short_term_messages = memory.fetch_short_term_memories(
@@ -101,8 +101,7 @@ def invoke(payload):
         return error_response.model_dump()
     
     agent_response = TelegramMessageAgentResponse(
-        text = agent_message_content,
-        error = None
+        text = agent_message_content
     )
 
     memory.add_memory_event(user_query=user_message, agent_response=agent_response)
@@ -119,21 +118,20 @@ def _agent_response_fails_validation(response: List | Dict) -> TelegramMessageAg
         response_validation_error_message = "Agent runtime returned an empty response."
         logger.error(response_validation_error_message)
         return TelegramMessageAgentResponse(
-            text = response_validation_error_message,
-            error = ValueError
+            text = response_validation_error_message
         )
     return None
 
+
 def _raise_error_message_generic(
-    error: BaseException, 
+    error: BaseException | type[BaseException],
     error_msg: str, 
     logger: logging.Logger
-) -> TelegramMessageAgentResponse:
+) -> Dict:
     if isinstance(error, BaseException):
         logger.exception(error_msg)
     else:
         logger.error(error_msg)
     return TelegramMessageAgentResponse(
-        text = error_msg,
-        error = error
+        text = error_msg
     ).model_dump()

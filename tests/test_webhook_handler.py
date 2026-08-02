@@ -1,17 +1,18 @@
+import hashlib
 import importlib
 import json
-import os
 import sys
-from io import BytesIO
 from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
-import hashlib
+
 
 MOCK_TELE_BOT_API_KEY = "1234567890:ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 MOCK_TELE_PID = 123456789
-AGENTCORE_FAILURE_TEXT = "AgentCore invocation failed. Message was not processed."
+MOCK_UPDATE_ID = 172376328
+MOCK_MESSAGE_ID = 67
+MOCK_SQS_QUEUE_URL = "https://sqs.us-east-1.amazonaws.com/123456789012/test.fifo"
 
 
 @pytest.fixture
@@ -22,8 +23,7 @@ def handler_module(monkeypatch):
 
     monkeypatch.setenv("TELE_BOT_API_KEY", MOCK_TELE_BOT_API_KEY)
     monkeypatch.setenv("TELE_PID", str(MOCK_TELE_PID))
-    monkeypatch.setenv("AGENT_RUNTIME_REGION", "us-east-1")
-    monkeypatch.setenv("AGENT_RUNTIME_ARN", "fake-agent-runtime-arn")
+    monkeypatch.setenv("SQS_QUEUE_URL", MOCK_SQS_QUEUE_URL)
 
     fake_boto3 = Mock()
     fake_boto3.client.return_value = Mock()
@@ -34,31 +34,32 @@ def handler_module(monkeypatch):
     return importlib.reload(module)
 
 
-@pytest.fixture
-def successful_agentcore_client():
-    fake_client = Mock()
-    fake_client.invoke_agent_runtime.return_value = {
-        "response": BytesIO(b'{"text":"ok","error":null}')
-    }
-    return fake_client
-
-
-def make_event(message=None, raw_body=None, **body_overrides):
+def make_event(
+    message=None,
+    raw_body=None,
+    update_id=MOCK_UPDATE_ID,
+    **body_overrides,
+):
     body = {}
     headers = {
-        "x-telegram-bot-api-secret-token": hashlib.sha256(MOCK_TELE_BOT_API_KEY.encode()).hexdigest()
+        "x-telegram-bot-api-secret-token": hashlib.sha256(
+            MOCK_TELE_BOT_API_KEY.encode()
+        ).hexdigest()
     }
+    if update_id is not None:
+        body["update_id"] = update_id
     if message is not None:
         body["message"] = message
     body.update(body_overrides)
     return {
         "headers": headers,
-        "body": raw_body if raw_body is not None else json.dumps(body)
+        "body": raw_body if raw_body is not None else json.dumps(body),
     }
 
 
 def make_message(**overrides):
     message = {
+        "message_id": MOCK_MESSAGE_ID,
         "from": {"id": MOCK_TELE_PID},
         "chat": {"id": MOCK_TELE_PID},
         "text": "Hello, World!",
@@ -67,141 +68,107 @@ def make_message(**overrides):
     return message
 
 
-def test_webhook_contract(handler_module, successful_agentcore_client, monkeypatch):
-    monkeypatch.setattr(handler_module, "client", successful_agentcore_client)
+def test_webhook_enqueues_valid_invocation_job(handler_module):
+    out = handler_module.handler(make_event(make_message(date=1721385600)), None)
 
-    out = handler_module.handler(make_event(make_message()), None)
+    assert out == {"statusCode": 200, "body": ""}
+    handler_module.sqs_client.send_message.assert_called_once()
 
-    assert out == {
-        "method": "sendMessage",
-        "chat_id": str(MOCK_TELE_PID),
-        "text": "ok",
+    call = handler_module.sqs_client.send_message.call_args.kwargs
+    assert call["QueueUrl"] == MOCK_SQS_QUEUE_URL
+    assert call["MessageGroupId"] == str(MOCK_TELE_PID)
+    assert call["MessageDeduplicationId"] == f"telegram-update-{MOCK_UPDATE_ID}"
+    assert json.loads(call["MessageBody"]) == {
+        "update_id": MOCK_UPDATE_ID,
+        "message_id": MOCK_MESSAGE_ID,
+        "agent_input": {
+            "username": None,
+            "sender_id": str(MOCK_TELE_PID),
+            "text": "Hello, World!",
+            "date": "19072024",
+        },
     }
-
-    successful_agentcore_client.invoke_agent_runtime.assert_called_once()
-    call = successful_agentcore_client.invoke_agent_runtime.call_args.kwargs
-    assert call["agentRuntimeArn"] == "fake-agent-runtime-arn"
-    assert call["contentType"] == "application/json"
-    assert call["accept"] == "application/json"
-    assert call["qualifier"] == "DEFAULT"
-
-    agent_payload = json.loads(call["payload"])
-    assert agent_payload["sender_id"] == str(MOCK_TELE_PID)
-    assert agent_payload["text"] == "Hello, World!"
 
 
 def test_handler_returns_200_for_non_dict_lambda_event(handler_module):
-    assert handler_module.handler("not-a-dict", None) == ("", 200)
+    assert handler_module.handler("not-a-dict", None) == {
+        "statusCode": 200,
+        "body": "",
+    }
 
 
 @pytest.mark.parametrize(
-    ("event", "expected"),
+    "event",
     [
-        (make_event(), ("", 400)),
-        (make_event(raw_body="not-json"), ("", 400)),
-        (make_event(raw_body="{}"), ("", 400)),
-        (make_event(message=[]), ("", 400)),
-        (make_event(message={}), ("", 400)),
-        (make_event(make_message(**{"from": {}})), ("", 400)),
-        (make_event(make_message(chat={})), ("", 400)),
-        (make_event(make_message(text="")), ("", 400)),
-        (make_event(make_message(text=123)), ("", 400)),
+        make_event(),
+        make_event(raw_body="not-json"),
+        make_event(raw_body="{}"),
+        make_event(make_message(), update_id=None),
+        make_event(make_message(), update_id="invalid"),
+        make_event(message=[]),
+        make_event(message={}),
+        make_event(make_message(**{"from": {}})),
+        make_event(make_message(chat={})),
+        make_event(make_message(message_id=None)),
+        make_event(make_message(text="")),
+        make_event(make_message(text=123)),
     ],
 )
-def test_handler_rejects_invalid_payloads(handler_module, event, expected):
-    assert handler_module.handler(event, None) == expected
+def test_handler_acknowledges_invalid_payloads(handler_module, event):
+    assert handler_module.handler(event, None) == {"statusCode": 200, "body": ""}
+    handler_module.sqs_client.send_message.assert_not_called()
 
 
 def test_handler_ignores_edited_message_events(handler_module):
     out = handler_module.handler(make_event(edited_message=make_message()), None)
 
-    assert out == ("", 200)
+    assert out == {"statusCode": 200, "body": ""}
+    handler_module.sqs_client.send_message.assert_not_called()
 
 
 def test_handler_rejects_missing_telegram_secret(handler_module):
     event = make_event(make_message())
     event["headers"] = {}
 
-    assert handler_module.handler(event, None) == ("", 401)
+    assert handler_module.handler(event, None) == {"statusCode": 401, "body": ""}
+    handler_module.sqs_client.send_message.assert_not_called()
 
 
 def test_handler_rejects_invalid_telegram_secret(handler_module):
     event = make_event(make_message())
     event["headers"]["x-telegram-bot-api-secret-token"] = "invalid-secret"
 
-    assert handler_module.handler(event, None) == ("", 401)
+    assert handler_module.handler(event, None) == {"statusCode": 401, "body": ""}
+    handler_module.sqs_client.send_message.assert_not_called()
 
 
-def test_handler_rejects_wrong_sender_id(handler_module):
-    out = handler_module.handler(make_event(make_message(**{"from": {"id": MOCK_TELE_PID + 1}})), None)
+def test_handler_acknowledges_wrong_sender_id(handler_module):
+    out = handler_module.handler(
+        make_event(make_message(**{"from": {"id": MOCK_TELE_PID + 1}})),
+        None,
+    )
 
-    assert out == ("", 403)
+    assert out == {"statusCode": 200, "body": ""}
+    handler_module.sqs_client.send_message.assert_not_called()
 
 
-def test_handler_returns_send_message_when_agentcore_invocation_fails(handler_module, monkeypatch):
-    failing_client = Mock()
-    failing_client.invoke_agent_runtime.side_effect = RuntimeError("boom")
-    monkeypatch.setattr(handler_module, "client", failing_client)
+def test_handler_returns_500_when_sqs_enqueue_fails(handler_module):
+    handler_module.sqs_client.send_message.side_effect = RuntimeError("boom")
 
     out = handler_module.handler(make_event(make_message()), None)
 
-    assert out == {
-        "method": "sendMessage",
-        "chat_id": str(MOCK_TELE_PID),
-        "text": AGENTCORE_FAILURE_TEXT,
-    }
+    assert out == {"statusCode": 500, "body": ""}
 
 
 def test_validate_input_accepts_valid_payload_with_date(handler_module):
-    '''Test date successful date conversion from unix UTC to DDMMYYYY'''
+    """Test successful date conversion from Unix UTC to DDMMYYYY."""
     out = handler_module._validate_input(
         input=make_event(make_message(date=1721385600)),
         logger=handler_module.logger,
     )
 
-    assert out.sender_id == str(MOCK_TELE_PID)
-    assert out.text == "Hello, World!"
-    assert out.date == "19072024"
-
-
-def itest_message(tele_pid):
-    message = {
-        "from": {"id": tele_pid, "username": "integration_test"},
-        "chat": {"id": tele_pid, "username": "integration_test"},
-        "text": "Integration test: reply with a short acknowledgement.",
-    }
-    return message
-
-
-@pytest.mark.integration
-def test_handler_invokes_router_agent_runtime(monkeypatch):
-    '''
-    Hybrid integration test:
-     - Mocks deployed webhook lambda by using local handler with mock PID
-     - Agent Invocation hits real router agent runtime deployed in AgentCore
-    '''
-    if os.environ.get("RUN_LIVE_INTEGRATION_TESTS") != "1":
-        pytest.skip("set RUN_LIVE_INTEGRATION_TESTS=1 to run live AgentCore integration test")
-
-    required_env_vars = ["AGENT_RUNTIME_ARN", "AGENT_RUNTIME_REGION", "TELE_PID"]
-    missing_env_vars = [name for name in required_env_vars if not os.environ.get(name)]
-    if missing_env_vars:
-        pytest.skip(f"{', '.join(missing_env_vars)}")
-
-    repo_root = Path(__file__).resolve().parents[1]
-    monkeypatch.syspath_prepend(str(repo_root / "src" / "shared"))
-    monkeypatch.setenv("TELE_BOT_API_KEY", MOCK_TELE_BOT_API_KEY)
-    monkeypatch.setenv("TELE_PID", str(MOCK_TELE_PID))
-
-    sys.modules.pop("src.lambdas.webhook.handler", None)
-    import src.lambdas.webhook.handler as live_handler_module
-    live_handler_module = importlib.reload(live_handler_module)
-
-    event = make_event(itest_message(MOCK_TELE_PID))
-    out = live_handler_module.handler(event, None)
-
-    assert isinstance(out, dict)
-    assert out["method"] == "sendMessage"
-    assert out["chat_id"] == str(MOCK_TELE_PID)
-    assert out["text"]
-    assert out["text"] != AGENTCORE_FAILURE_TEXT
+    assert out.update_id == MOCK_UPDATE_ID
+    assert out.message_id == MOCK_MESSAGE_ID
+    assert out.agent_input.sender_id == str(MOCK_TELE_PID)
+    assert out.agent_input.text == "Hello, World!"
+    assert out.agent_input.date == "19072024"

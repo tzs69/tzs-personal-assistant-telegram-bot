@@ -15,16 +15,6 @@ data "aws_iam_policy_document" "webhook_lambda_permissions" {
       var.webhook_invoker_queue_arn
     ]
   }
-  statement {
-    sid    = "BedrockAgentCoreInvokeAgentRuntime"
-    effect = "Allow"
-    actions = [
-      "bedrock-agentcore:InvokeAgentRuntime",
-    ]
-    resources = [
-      "arn:aws:bedrock-agentcore:*:*:runtime/*"
-    ]
-  }
 }
 
 resource "aws_iam_role_policy" "webhook_lambda_inline_policy" {
@@ -42,11 +32,9 @@ resource "aws_lambda_function" "webhook_lambda" {
 
   environment {
     variables = {
-      "AGENT_RUNTIME_ARN"    = var.agent_runtime_arn
-      "TELE_PID"             = var.tele_pid
-      "AGENT_RUNTIME_REGION" = var.agent_runtime_region
-      "TELE_BOT_API_KEY"     = var.tele_bot_api_key
-      "SQS_QUEUE_URL"        = var.webhook_invoker_queue_url
+      "TELE_PID"         = var.tele_pid
+      "TELE_BOT_API_KEY" = var.tele_bot_api_key
+      "SQS_QUEUE_URL"    = var.webhook_invoker_queue_url
     }
   }
   timeout = 20
@@ -55,10 +43,4 @@ resource "aws_lambda_function" "webhook_lambda" {
 resource "aws_lambda_function_url" "webhook_lambda_url_resource" {
   function_name      = aws_lambda_function.webhook_lambda.function_name
   authorization_type = "NONE"
-}
-
-# Temp; not to commit
-moved {
-  from = aws_iam_role.webhook_lambda_role
-  to   = module.webhook_lambda_iam.aws_iam_role.base_lambda_role
 }

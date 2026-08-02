@@ -45,6 +45,8 @@ resource "aws_lambda_function" "invoker_lambda" {
     variables = {
       "AGENT_RUNTIME_ARN"    = var.agent_runtime_arn
       "AGENT_RUNTIME_REGION" = var.agent_runtime_region
+      "TELE_BOT_API_KEY"     = var.tele_bot_api_key
+      "TELE_PID"             = var.tele_pid
     }
   }
   timeout = 300
@@ -55,6 +57,4 @@ resource "aws_lambda_event_source_mapping" "name" {
   function_name    = aws_lambda_function.invoker_lambda.function_name
   batch_size       = 1
   depends_on       = [aws_iam_role_policy.invoker_lambda_inline_policy]
-
-  enabled = false # Temporary; once source code in place remove
 }

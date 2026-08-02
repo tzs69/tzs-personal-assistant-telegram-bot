@@ -1,7 +1,7 @@
 import logging
 from typing import Any, Dict, List
 from bedrock_agentcore.memory import MemoryClient
-from schemas import TelegramMessageUserInput, TelegramMessageAgentResponse
+from schemas import TelegramMessageAgentInput, TelegramMessageAgentResponse
 
 
 class MemoryManagementService:
@@ -168,7 +168,7 @@ class MemoryManagementService:
 
     def add_memory_event(
         self,
-        user_query: TelegramMessageUserInput,
+        user_query: TelegramMessageAgentInput,
         agent_response: TelegramMessageAgentResponse
     ) -> None:
         """

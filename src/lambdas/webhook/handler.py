@@ -6,73 +6,61 @@ from pydantic import ValidationError
 from datetime import datetime, timezone
 from typing import Dict
 import hashlib, hmac
-from schemas import TelegramMessageUserInput, TelegramMessageAgentResponse, InputValidationErrorResponse
+from schemas import TelegramMessageAgentInput, InputValidationErrorResponse, TelegramInvocationJob
 
-AGENT_RUNTIME_ARN = os.environ.get("AGENT_RUNTIME_ARN")
+SQS_QUEUE_URL=os.environ.get("SQS_QUEUE_URL")
 TELE_PID=int(os.environ.get("TELE_PID"))
-AGENT_RUNTIME_REGION = os.environ.get("AGENT_RUNTIME_REGION", "us-east-1")
 TELE_BOT_API_KEY=os.environ.get("TELE_BOT_API_KEY", "")
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-client = boto3.client("bedrock-agentcore", region_name=AGENT_RUNTIME_REGION)
+sqs_client = boto3.client("sqs")
 
 def handler(event, context):
 
     # Validate and parse telegram event
     if not isinstance(event, dict):
         logger.warning(f"Invalid Lambda event format, expected dict, got {type(event)}")
-        return "", 200 
+        return {"statusCode": 200, "body": ""}
 
     headers = event.get("headers") or {} 
     headers = {k.lower(): v for k, v in headers.items()}
     if not verify_telegram_request(headers=headers, logger=logger):
         logger.error("Inbound request signature verification failed")
-        return "", 401
+        return {"statusCode": 401, "body": ""}
 
-    user_input_validated: TelegramMessageUserInput = _validate_input(input=event, logger=logger)
-    if isinstance(user_input_validated, InputValidationErrorResponse):
-        if user_input_validated.error_msg == "PID auth error":
-            return "", 403
-        elif user_input_validated.sender_id and user_input_validated.error_msg:
+    validation_result: TelegramInvocationJob | InputValidationErrorResponse = _validate_input(
+        input=event,
+        logger=logger
+    )
+
+    if isinstance(validation_result, InputValidationErrorResponse):
+        if validation_result.sender_id and validation_result.error_msg:
             return {
                 "method": "sendMessage",
-                "chat_id": user_input_validated.sender_id,
-                "text": user_input_validated.error_msg
+                "chat_id": validation_result.sender_id,
+                "text": validation_result.error_msg
             }
-        elif not user_input_validated.sender_id and user_input_validated.error_msg=="Edited message event":
-            return "", 200
         else:
-            return "", 400
-    sender_id = user_input_validated.sender_id
+            return {"statusCode": 200, "body": ""}
+
+    invocation_job = validation_result
+    sender_id = invocation_job.agent_input.sender_id
 
     try:
-        # Pass validated input to agent runtime for answer generation
-        response = client.invoke_agent_runtime(
-            agentRuntimeArn=AGENT_RUNTIME_ARN,
-            payload=user_input_validated.model_dump_json(),
-            contentType="application/json",
-            accept="application/json",
-            qualifier="DEFAULT",
+        # Enqueue built job payload to sqs
+        sqs_client.send_message(
+            QueueUrl=SQS_QUEUE_URL,
+            MessageBody=invocation_job.model_dump_json(),
+            MessageGroupId=sender_id,
+            MessageDeduplicationId=f"telegram-update-{invocation_job.update_id}"
         )
+        return {"statusCode": 200, "body": ""}
     except Exception:
-        logger.exception("AgentCore invocation failed")
-        return {
-            "method": "sendMessage",
-            "chat_id": sender_id,
-            "text": "AgentCore invocation failed. Message was not processed."
-        }
+        logger.exception(f"Failed to enqueue Telegram update {invocation_job.update_id} to the invoker queue")
+        return {"statusCode": 500, "body": ""}
     
-    response_body = response['response'].read().decode("utf-8")
-    agent_response = TelegramMessageAgentResponse.model_validate_json(response_body)
-    
-    return {
-        "method": "sendMessage",
-        "chat_id": sender_id,
-        "text": agent_response.text,
-    }
-
 
 def verify_telegram_request(
     headers: Dict,
@@ -92,16 +80,19 @@ def verify_telegram_request(
 def _validate_input(
     input: Dict, 
     logger: logging.Logger
-) -> TelegramMessageUserInput | InputValidationErrorResponse:
+) -> TelegramInvocationJob | InputValidationErrorResponse:
     try:
         body_raw = input["body"]
         try:
             body_parsed = json.loads(body_raw)
         except Exception:
-            logger.exception("INPUT VALIDATION ERROR: request body is not valid JSON")
+            logger.exception("INPUT VALIDATION ERROR: raw request body is not valid JSON")
+            return InputValidationErrorResponse()
+        if not isinstance(body_parsed, dict):
+            logger.warning("INPUT VALIDATION ERROR: parsed request body is malformed")
             return InputValidationErrorResponse()
         if len(body_parsed) == 0:
-            logger.warning("INPUT VALIDATION ERROR: empty request body")
+            logger.warning("INPUT VALIDATION ERROR: parsed request body is empty")
             return InputValidationErrorResponse()
     except Exception:
         logger.exception("INPUT VALIDATION ERROR: missing or malformed Lambda event body")
@@ -109,8 +100,16 @@ def _validate_input(
     
     # Skip edit message events to only trigger answer generation on new messages("message")
     if "edited_message" in body_parsed.keys():
-        logger.info("Edited message event received, skipping.")
-        return InputValidationErrorResponse(error_msg="Edited message event")
+        logger.warning("Edited message event received, skipping.")
+        return InputValidationErrorResponse()
+
+    update_id = body_parsed.get("update_id")
+    if not isinstance(update_id, int):
+        logger.warning(f"INPUT VALIDATION ERROR: parsed request body's update_id is malformed")
+        return InputValidationErrorResponse()
+    if update_id < 0:
+        logger.warning(f"INPUT VALIDATION ERROR: parsed request body's update_id must be a positive integer")
+        return InputValidationErrorResponse()
     
     message = body_parsed.get("message", {})
     if not isinstance(message, dict):
@@ -134,8 +133,16 @@ def _validate_input(
     # (private bot, cannot be added to grps)
     if from_id != TELE_PID or chat_id != TELE_PID or from_id != chat_id:
         logger.warning(f"INPUT VALIDATION ERROR: Telegram sender/chat id {chat_id} does not match allowed personal id {TELE_PID}")
-        return InputValidationErrorResponse(error_msg="PID auth error")
+        return InputValidationErrorResponse()
     sender_id = str(chat_id)
+
+    message_id = message.get("message_id")
+    if not isinstance(message_id, int):
+        logger.warning(f"INPUT VALIDATION ERROR: Telegram message message_id is malformed")
+        return InputValidationErrorResponse()
+    if message_id < 0:
+        logger.warning(f"INPUT VALIDATION ERROR: Telegram message message_id must be a positive integer")
+        return InputValidationErrorResponse()
 
     text = message.get("text", "")
     if not isinstance(text, str):
@@ -153,7 +160,9 @@ def _validate_input(
         date = datetime.now(timezone.utc).strftime('%d%m%Y')
 
     username = message.get("from", {}).get("username") or message.get("chat", {}).get("username")
-    logger.info(f"Valid message payload received: {json.dumps({ 
+    logger.info(f"Valid telegram request payload received: {json.dumps({
+        "update_id": update_id,
+        "message_id": message_id,
         "username": username,
         "chat_id": str(chat_id),
         "message": text,
@@ -161,13 +170,19 @@ def _validate_input(
     })}")
 
     try:
-        out = TelegramMessageUserInput(
+        agent_input = TelegramMessageAgentInput(
             username=username,
             sender_id=sender_id,
             text=text,
             date=date
-        )    
-        return out
+        )
+        queue_message_payload = TelegramInvocationJob(
+            update_id=update_id,
+            message_id=message_id,
+            agent_input=agent_input
+        )
+        return queue_message_payload
+
     except ValidationError:
         return InputValidationErrorResponse(
             sender_id = sender_id,

@@ -33,3 +33,14 @@ variable "invoker_lambda_function_name" {
   description = "Name of the invoker lambda function"
   default     = "tzs-pa-tele-bot-dev-invoker-lambda"
 }
+
+variable "tele_pid" {
+  type        = string
+  description = "Telegram user ID. Use @userinfobot on to get."
+}
+
+variable "tele_bot_api_key" {
+  type        = string
+  sensitive   = true
+  description = "Telegram bot API key/token"
+}
