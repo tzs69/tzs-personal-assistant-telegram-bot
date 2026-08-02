@@ -37,52 +37,68 @@ resource "docker_buildx_builder" "image_builder" {
 }
 
 locals {
-  src_root                  = abspath("${path.module}/../../../src")
-  webhook_lambda_source_dir = "${local.src_root}/lambdas/webhook"
-  router_agent_source_dir   = "${local.src_root}/agentcore/router_agent"
-  shared_dir                = "${local.src_root}/shared"
+  src_root            = abspath("${path.module}/../../../src")
+  shared_dir          = "${local.src_root}/shared"
+  file_ignore_pattern = "(^|/)__pycache__(/|$)|\\.py[cod]$"
 
-  # Source code for each service (exclusively owned + shared)
-  # Direct source code files (excl. shared)
-  ignore_pattern = "(^|/)__pycache__(/|$)|\\.py[cod]$"
-  webhook_lambda_source_files = sort([
-    for source_file in fileset(local.webhook_lambda_source_dir, "**") : source_file
-    if !can(regex(local.ignore_pattern, source_file))
-  ])
-  router_agent_source_files = sort([
-    for source_file in fileset(local.router_agent_source_dir, "**") : source_file
-    if !can(regex(local.ignore_pattern, source_file))
-  ])
+  source_dirs = {
+    invoker_lambda = "${local.src_root}/lambdas/invoker"
+    webhook_lambda = "${local.src_root}/lambdas/webhook"
+    router_agent   = "${local.src_root}/agentcore/router_agent"
+  }
 
-  # Lambda - Agentcore shared files (schema file as of now)
-  lambda_agentcore_shared_file_names = ["schemas.py"]
-  lambda_agentcore_shared_files = sort([
-    for shared_file in fileset(local.shared_dir, "**") : shared_file
-    if(
-      !can(regex(local.ignore_pattern, shared_file))
-      && contains(local.lambda_agentcore_shared_file_names, shared_file)
-    )
-  ])
-  agentcore_shared_file_names = ["agentcore_memory.py"]
-  agentcore_shared_files = sort([
-    for shared_file in fileset(local.shared_dir, "**") : shared_file
-    if(
-      !can(regex(local.ignore_pattern, shared_file))
-      && contains(local.agentcore_shared_file_names, shared_file)
-    )
-  ])
+  filter_source_files = {
+    for service_name, source_dir in local.source_dirs : service_name => sort([
+      for source_file in fileset(source_dir, "**") : source_file
+      if !can(regex(local.file_ignore_pattern, source_file))
+    ])
+  }
+
+  invoker_lambda_source_files = local.filter_source_files.invoker_lambda
+  webhook_lambda_source_files = local.filter_source_files.webhook_lambda
+  router_agent_source_files   = local.filter_source_files.router_agent
+
+  shared_files = {
+    lambda       = ["schemas.py"]
+    router_agent = ["schemas.py", "agentcore_memory.py"]
+  }
+
+  filter_shared_files = {
+    for service_name, shared_file_names in local.shared_files : service_name => sort([
+      for shared_file in fileset(local.shared_dir, "**") : shared_file
+      if(
+        !can(regex(local.file_ignore_pattern, shared_file))
+        && contains(shared_file_names, shared_file)
+      )
+    ])
+  }
+
+  lambda_shared_files       = local.filter_shared_files.lambda
+  router_agent_shared_files = local.filter_shared_files.router_agent
+
 
   service_images = {
+    invoker_lambda = {
+      ecr_repo_name    = var.invoker_lambda_ecr_repo_name
+      image_tag_prefix = var.invoker_lambda_image_tag_prefix
+      build_context    = var.build_context
+      builder_name     = docker_buildx_builder.image_builder.name
+      platform         = var.lambda_architecture
+      dockerfile       = "${local.source_dirs.invoker_lambda}/Dockerfile"
+      source_dir       = local.source_dirs.invoker_lambda
+      source_files     = local.invoker_lambda_source_files
+      shared_files     = local.lambda_shared_files
+    }
     webhook_lambda = {
       ecr_repo_name    = var.webhook_lambda_ecr_repo_name
       image_tag_prefix = var.webhook_lambda_image_tag_prefix
       build_context    = var.build_context
       builder_name     = docker_buildx_builder.image_builder.name
       platform         = var.lambda_architecture
-      dockerfile       = "${local.webhook_lambda_source_dir}/Dockerfile"
-      source_dir       = local.webhook_lambda_source_dir
+      dockerfile       = "${local.source_dirs.webhook_lambda}/Dockerfile"
+      source_dir       = local.source_dirs.webhook_lambda
       source_files     = local.webhook_lambda_source_files
-      shared_files     = local.lambda_agentcore_shared_files
+      shared_files     = local.lambda_shared_files
     }
     router_agent = {
       ecr_repo_name    = var.router_agent_ecr_repo_name
@@ -90,10 +106,10 @@ locals {
       build_context    = var.build_context
       builder_name     = docker_buildx_builder.image_builder.name
       platform         = var.agentcore_architecture
-      dockerfile       = "${local.router_agent_source_dir}/Dockerfile"
-      source_dir       = local.router_agent_source_dir
+      dockerfile       = "${local.source_dirs.router_agent}/Dockerfile"
+      source_dir       = local.source_dirs.router_agent
       source_files     = local.router_agent_source_files
-      shared_files     = concat(local.lambda_agentcore_shared_files, local.agentcore_shared_files)
+      shared_files     = local.router_agent_shared_files
     }
   }
 

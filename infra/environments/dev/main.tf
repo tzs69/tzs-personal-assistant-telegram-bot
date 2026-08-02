@@ -17,12 +17,19 @@ terraform {
 module "ecr" {
   source                       = "../../modules/ecr"
   router_agent_ecr_repo_name   = var.router_agent_ecr_repo_name
+  invoker_lambda_ecr_repo_name = var.invoker_lambda_ecr_repo_name
   webhook_lambda_ecr_repo_name = var.webhook_lambda_ecr_repo_name
 }
 
-moved {
-  from = module.ecr.module.service_images["agent_runtime"]
-  to   = module.ecr.module.service_images["router_agent"]
+module "invoker_lambda_function" {
+  source                             = "../../modules/lambda/invoker"
+  invoker_lambda_function_name       = var.invoker_lambda_function_name
+  invoker_lambda_execution_role_name = var.invoker_lambda_execution_role_name
+  agent_runtime_arn                  = module.router_agent.agent_runtime_arn
+  agent_runtime_region               = var.router_agent_region
+  invoker_lambda_image_uri           = module.ecr.invoker_lambda_image_uri
+  invoker_lambda_code_zip_sha        = module.ecr.invoker_lambda_image_digest
+  webhook_invoker_queue_arn          = module.webhook_invoker_sqs.queue_arn
 }
 
 module "webhook_lambda_function" {
@@ -35,6 +42,12 @@ module "webhook_lambda_function" {
   agent_runtime_arn                  = module.router_agent.agent_runtime_arn
   webhook_lambda_image_uri           = module.ecr.webhook_lambda_image_uri
   webhook_lambda_code_zip_sha        = module.ecr.webhook_lambda_image_digest
+  webhook_invoker_queue_arn          = module.webhook_invoker_sqs.queue_arn
+  webhook_invoker_queue_url          = module.webhook_invoker_sqs.queue_url
+}
+
+module "webhook_invoker_sqs" {
+  source = "../../modules/sqs"
 }
 
 module "router_agent" {

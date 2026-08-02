@@ -41,6 +41,29 @@ variable "router_agent_model_id" {
 }
 
 
+# Invoker lambda (& deps) resource vars
+variable "invoker_lambda_function_name" {
+  type        = string
+  description = "Name of the invoker lambda function"
+  default     = "tzs-pa-tele-bot-dev-invoker-lambda"
+}
+variable "invoker_lambda_execution_role_name" {
+  type        = string
+  description = "Name of the IAM execution role used by the invoker lambda function"
+  default     = "tzs-pa-tele-bot-dev-invoker-lambda-execution-role"
+}
+variable "invoker_lambda_ecr_repo_name" {
+  type        = string
+  description = "AWS ECR repository to store the built invoker lambda container image"
+  default     = "tzs-pa-tele-bot-dev-invoker-lambda-assets-repo"
+}
+variable "router_agent_region" {
+  type        = string
+  description = "The region the router agent runtime resides in. For use in invoker lambda to invoke router agent runtime"
+  default     = "us-east-1"
+}
+
+
 # Webhook lambda (& deps) resource vars
 variable "webhook_lambda_function_name" {
   type        = string
@@ -56,9 +79,4 @@ variable "webhook_lambda_ecr_repo_name" {
   type        = string
   description = "AWS ECR repository to store the built webhook lambda container image"
   default     = "tzs-pa-tele-bot-dev-webhook-lambda-assets-repo"
-}
-variable "router_agent_region" {
-  type        = string
-  description = "The region the router agent runtime resides in. For use in webhook lambda to invoke router agent runtime"
-  default     = "us-east-1"
 }

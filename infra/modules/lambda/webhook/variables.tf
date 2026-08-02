@@ -24,6 +24,7 @@ variable "tele_pid" {
 
 variable "tele_bot_api_key" {
   type        = string
+  sensitive   = true
   description = "Telegram bot API key/token"
 }
 variable "agent_runtime_arn" {
@@ -39,4 +40,14 @@ variable "webhook_lambda_image_uri" {
 variable "webhook_lambda_code_zip_sha" {
   type        = string
   description = "Derived from ecr module outputs during terraform deployment workflow"
+}
+
+variable "webhook_invoker_queue_arn" {
+  type        = string
+  description = "ARN of SQS queue between webhook lambda and invoker lambda"
+}
+
+variable "webhook_invoker_queue_url" {
+  type        = string
+  description = "ARN of SQS queue between webhook lambda and invoker lambda"
 }

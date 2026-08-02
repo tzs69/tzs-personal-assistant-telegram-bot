@@ -1,35 +1,18 @@
-# Includes the actual webhook lambda function resource, its data,
-# dependencies, and related resource(s) including:
-#   - IAM resources (IAM role, assume role & permissions policy documents),
-#   - function url (For external HTTP reqs; tele webhook)
-
-data "aws_iam_policy_document" "webhook_lambda_assume_role" {
-  statement {
-    sid     = "WebhookLambdaAssumeRole"
-    effect  = "Allow"
-    actions = ["sts:AssumeRole"]
-    principals {
-      type        = "Service"
-      identifiers = ["lambda.amazonaws.com"]
-    }
-  }
-}
-
-resource "aws_iam_role" "webhook_lambda_role" {
-  name               = var.webhook_lambda_execution_role_name
-  assume_role_policy = data.aws_iam_policy_document.webhook_lambda_assume_role.json
+module "webhook_lambda_iam" {
+  source              = "../../iam/lambda_base"
+  execution_role_name = var.webhook_lambda_execution_role_name
 }
 
 data "aws_iam_policy_document" "webhook_lambda_permissions" {
   statement {
-    sid    = "LambdaInvokeFunctionUrl"
+    sid    = "SQSQueueSendMessageAccess"
     effect = "Allow"
     actions = [
-      "lambda:InvokeFunction",
-      "lambda:InvokeFunctionUrl"
+      "sqs:SendMessage",
+      "sqs:GetQueueAttributes"
     ]
     resources = [
-      "arn:aws:lambda:*"
+      var.webhook_invoker_queue_arn
     ]
   }
   statement {
@@ -42,38 +25,16 @@ data "aws_iam_policy_document" "webhook_lambda_permissions" {
       "arn:aws:bedrock-agentcore:*:*:runtime/*"
     ]
   }
-  statement {
-    sid    = "ECRGetImageAccess"
-    effect = "Allow"
-    actions = [
-      "ecr:BatchGetImage",
-      "ecr:BatchCheckLayerAvailability",
-      "ecr:GetDownloadUrlForLayer"
-    ]
-    resources = [
-      "arn:aws:ecr:*:*:repository/*"
-    ]
-  }
-  statement {
-    effect = "Allow"
-    actions = [
-      "logs:CreateLogGroup",
-      "logs:CreateLogStream",
-      "logs:PutLogEvents"
-    ]
-    resources = ["arn:aws:logs:*:*:log-group:/aws/lambda/*"]
-  }
 }
 
 resource "aws_iam_role_policy" "webhook_lambda_inline_policy" {
-  role   = aws_iam_role.webhook_lambda_role.id
+  role   = module.webhook_lambda_iam.role_id
   policy = data.aws_iam_policy_document.webhook_lambda_permissions.json
 }
 
-
 resource "aws_lambda_function" "webhook_lambda" {
   function_name = var.webhook_lambda_function_name
-  role          = aws_iam_role.webhook_lambda_role.arn
+  role          = module.webhook_lambda_iam.role_arn
   image_uri     = var.webhook_lambda_image_uri
   package_type  = "Image"
 
@@ -85,6 +46,7 @@ resource "aws_lambda_function" "webhook_lambda" {
       "TELE_PID"             = var.tele_pid
       "AGENT_RUNTIME_REGION" = var.agent_runtime_region
       "TELE_BOT_API_KEY"     = var.tele_bot_api_key
+      "SQS_QUEUE_URL"        = var.webhook_invoker_queue_url
     }
   }
   timeout = 20
@@ -93,4 +55,10 @@ resource "aws_lambda_function" "webhook_lambda" {
 resource "aws_lambda_function_url" "webhook_lambda_url_resource" {
   function_name      = aws_lambda_function.webhook_lambda.function_name
   authorization_type = "NONE"
+}
+
+# Temp; not to commit
+moved {
+  from = aws_iam_role.webhook_lambda_role
+  to   = module.webhook_lambda_iam.aws_iam_role.base_lambda_role
 }
