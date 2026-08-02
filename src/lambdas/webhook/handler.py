@@ -4,31 +4,38 @@ import os
 import boto3
 from pydantic import ValidationError
 from datetime import datetime, timezone
+from typing import Dict
+import hashlib, hmac
 from schemas import TelegramMessageUserInput, TelegramMessageAgentResponse, InputValidationErrorResponse
 
 AGENT_RUNTIME_ARN = os.environ.get("AGENT_RUNTIME_ARN")
 TELE_PID=int(os.environ.get("TELE_PID"))
 AGENT_RUNTIME_REGION = os.environ.get("AGENT_RUNTIME_REGION", "us-east-1")
+TELE_BOT_API_KEY=os.environ.get("TELE_BOT_API_KEY", "")
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 client = boto3.client("bedrock-agentcore", region_name=AGENT_RUNTIME_REGION)
 
-# Temporary dummy for early stage infrastructure provision
 def handler(event, context):
-    '''
-    '''
+
     # Validate and parse telegram event
     if not isinstance(event, dict):
         logger.warning(f"Invalid Lambda event format, expected dict, got {type(event)}")
         return "", 200 
-    
-    logger.info(f"REQUEST PAYLOAD:\n{json.dumps(event)}")
+
+    headers = event.get("headers") or {} 
+    headers = {k.lower(): v for k, v in headers.items()}
+    if not verify_telegram_request(headers=headers, logger=logger):
+        logger.error("Inbound request signature verification failed")
+        return "", 401
 
     user_input_validated: TelegramMessageUserInput = _validate_input(input=event, logger=logger)
     if isinstance(user_input_validated, InputValidationErrorResponse):
-        if user_input_validated.sender_id and user_input_validated.error_msg:
+        if user_input_validated.error_msg == "PID auth error":
+            return "", 403
+        elif user_input_validated.sender_id and user_input_validated.error_msg:
             return {
                 "method": "sendMessage",
                 "chat_id": user_input_validated.sender_id,
@@ -67,10 +74,23 @@ def handler(event, context):
     }
 
 
+def verify_telegram_request(
+    headers: Dict,
+    logger: logging.Logger
+):
+    telegram_signature = headers.get("x-telegram-bot-api-secret-token", "")
+    if not telegram_signature:
+        logger.warning("Telegram signature missing in lambda event payload")
+        return False
+    signing_secret = hashlib.sha256(TELE_BOT_API_KEY.encode()).hexdigest()
+    valid = hmac.compare_digest(signing_secret, telegram_signature)
+    if not valid:
+        logger.warning("Signature mismatch")
+    return valid
 
 
 def _validate_input(
-    input: dict, 
+    input: Dict, 
     logger: logging.Logger
 ) -> TelegramMessageUserInput | InputValidationErrorResponse:
     try:
@@ -114,7 +134,7 @@ def _validate_input(
     # (private bot, cannot be added to grps)
     if from_id != TELE_PID or chat_id != TELE_PID or from_id != chat_id:
         logger.warning(f"INPUT VALIDATION ERROR: Telegram sender/chat id {chat_id} does not match allowed personal id {TELE_PID}")
-        return InputValidationErrorResponse()
+        return InputValidationErrorResponse(error_msg="PID auth error")
     sender_id = str(chat_id)
 
     text = message.get("text", "")

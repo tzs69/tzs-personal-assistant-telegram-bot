@@ -7,9 +7,9 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
-import requests
+import hashlib
 
-
+MOCK_TELE_BOT_API_KEY = "1234567890:ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 MOCK_TELE_PID = 123456789
 AGENTCORE_FAILURE_TEXT = "AgentCore invocation failed. Message was not processed."
 
@@ -20,6 +20,7 @@ def handler_module(monkeypatch):
     shared_src = repo_root / "src" / "shared"
     monkeypatch.syspath_prepend(str(shared_src))
 
+    monkeypatch.setenv("TELE_BOT_API_KEY", MOCK_TELE_BOT_API_KEY)
     monkeypatch.setenv("TELE_PID", str(MOCK_TELE_PID))
     monkeypatch.setenv("AGENT_RUNTIME_REGION", "us-east-1")
     monkeypatch.setenv("AGENT_RUNTIME_ARN", "fake-agent-runtime-arn")
@@ -42,12 +43,18 @@ def successful_agentcore_client():
     return fake_client
 
 
-def make_event(message=None, **body_overrides):
+def make_event(message=None, raw_body=None, **body_overrides):
     body = {}
+    headers = {
+        "x-telegram-bot-api-secret-token": hashlib.sha256(MOCK_TELE_BOT_API_KEY.encode()).hexdigest()
+    }
     if message is not None:
         body["message"] = message
     body.update(body_overrides)
-    return {"body": json.dumps(body)}
+    return {
+        "headers": headers,
+        "body": raw_body if raw_body is not None else json.dumps(body)
+    }
 
 
 def make_message(**overrides):
@@ -90,9 +97,9 @@ def test_handler_returns_200_for_non_dict_lambda_event(handler_module):
 @pytest.mark.parametrize(
     ("event", "expected"),
     [
-        ({}, ("", 400)),
-        ({"body": "not-json"}, ("", 400)),
-        ({"body": "{}"}, ("", 400)),
+        (make_event(), ("", 400)),
+        (make_event(raw_body="not-json"), ("", 400)),
+        (make_event(raw_body="{}"), ("", 400)),
         (make_event(message=[]), ("", 400)),
         (make_event(message={}), ("", 400)),
         (make_event(make_message(**{"from": {}})), ("", 400)),
@@ -111,10 +118,24 @@ def test_handler_ignores_edited_message_events(handler_module):
     assert out == ("", 200)
 
 
+def test_handler_rejects_missing_telegram_secret(handler_module):
+    event = make_event(make_message())
+    event["headers"] = {}
+
+    assert handler_module.handler(event, None) == ("", 401)
+
+
+def test_handler_rejects_invalid_telegram_secret(handler_module):
+    event = make_event(make_message())
+    event["headers"]["x-telegram-bot-api-secret-token"] = "invalid-secret"
+
+    assert handler_module.handler(event, None) == ("", 401)
+
+
 def test_handler_rejects_wrong_sender_id(handler_module):
     out = handler_module.handler(make_event(make_message(**{"from": {"id": MOCK_TELE_PID + 1}})), None)
 
-    assert out == ("", 400)
+    assert out == ("", 403)
 
 
 def test_handler_returns_send_message_when_agentcore_invocation_fails(handler_module, monkeypatch):
@@ -169,6 +190,7 @@ def test_handler_invokes_router_agent_runtime(monkeypatch):
 
     repo_root = Path(__file__).resolve().parents[1]
     monkeypatch.syspath_prepend(str(repo_root / "src" / "shared"))
+    monkeypatch.setenv("TELE_BOT_API_KEY", MOCK_TELE_BOT_API_KEY)
     monkeypatch.setenv("TELE_PID", str(MOCK_TELE_PID))
 
     sys.modules.pop("src.lambdas.webhook.handler", None)
