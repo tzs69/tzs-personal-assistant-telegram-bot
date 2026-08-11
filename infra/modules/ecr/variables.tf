@@ -30,6 +30,18 @@ variable "router_agent_image_tag_prefix" {
 }
 
 
+# Router agent MCP tools Lambda
+variable "router_agent_tools_ecr_repo_name" {
+  type        = string
+  description = "AWS ECR repository to store the built router agent MCP tools Lambda image"
+}
+
+variable "router_agent_tools_image_tag_prefix" {
+  type    = string
+  default = "router-agent-tools"
+}
+
+
 # Invoker lambda
 variable "invoker_lambda_ecr_repo_name" {
   type        = string

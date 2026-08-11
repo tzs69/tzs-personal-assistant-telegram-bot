@@ -35,3 +35,18 @@ variable "agent_memory_region" {
   type        = string
   description = "associated agent memory region"
 }
+
+variable "agentcore_gateway_arn" {
+  type        = string
+  description = "ARN of the AgentCore Gateway that the agent runtime may invoke"
+}
+
+variable "agentcore_gateway_url" {
+  type        = string
+  description = "MCP endpoint URL of the AgentCore Gateway used by the agent runtime"
+}
+
+variable "agentcore_gateway_region" {
+  type        = string
+  description = "AWS Region used to sign requests to the AgentCore Gateway"
+}

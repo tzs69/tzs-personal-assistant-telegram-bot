@@ -1,8 +1,8 @@
 # This file provisions all the container resources and ECR repositories
 # necessary for the containerization and storage of source code artifacts 
 # used during the instantiation of external module resource(s): 
-#  - Agentcore agent runtime
-#  - Webhook lambda function
+#  - AgentCore agent runtime
+#  - Lambda functions
 
 terraform {
   required_providers {
@@ -42,9 +42,10 @@ locals {
   file_ignore_pattern = "(^|/)__pycache__(/|$)|\\.py[cod]$"
 
   source_dirs = {
-    invoker_lambda = "${local.src_root}/lambdas/invoker"
-    webhook_lambda = "${local.src_root}/lambdas/webhook"
-    router_agent   = "${local.src_root}/agentcore/router_agent"
+    invoker_lambda     = "${local.src_root}/lambdas/invoker"
+    webhook_lambda     = "${local.src_root}/lambdas/webhook"
+    router_agent       = "${local.src_root}/agentcore/router_agent"
+    router_agent_tools = "${local.src_root}/lambdas/mcp_tools/router_agent_tools"
   }
 
   filter_source_files = {
@@ -54,9 +55,10 @@ locals {
     ])
   }
 
-  invoker_lambda_source_files = local.filter_source_files.invoker_lambda
-  webhook_lambda_source_files = local.filter_source_files.webhook_lambda
-  router_agent_source_files   = local.filter_source_files.router_agent
+  invoker_lambda_source_files     = local.filter_source_files.invoker_lambda
+  webhook_lambda_source_files     = local.filter_source_files.webhook_lambda
+  router_agent_source_files       = local.filter_source_files.router_agent
+  router_agent_tools_source_files = local.filter_source_files.router_agent_tools
 
   shared_files = {
     lambda       = ["schemas.py"]
@@ -110,6 +112,17 @@ locals {
       source_dir       = local.source_dirs.router_agent
       source_files     = local.router_agent_source_files
       shared_files     = local.router_agent_shared_files
+    }
+    router_agent_tools = {
+      ecr_repo_name    = var.router_agent_tools_ecr_repo_name
+      image_tag_prefix = var.router_agent_tools_image_tag_prefix
+      build_context    = local.source_dirs.router_agent_tools
+      builder_name     = docker_buildx_builder.image_builder.name
+      platform         = var.lambda_architecture
+      dockerfile       = "${local.source_dirs.router_agent_tools}/Dockerfile"
+      source_dir       = local.source_dirs.router_agent_tools
+      source_files     = local.router_agent_tools_source_files
+      shared_files     = []
     }
   }
 
