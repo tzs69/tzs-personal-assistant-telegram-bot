@@ -4,9 +4,10 @@ A private, single-user Telegram assistant built with AWS Bedrock AgentCore,
 Strands Agents, Lambda, and Terraform.
 
 The project currently supports an end-to-end text conversation flow: Telegram
-delivers a webhook update to Lambda, Lambda validates the sender and invokes an
-AgentCore runtime, and a Strands agent generates the reply with access to recent
-conversation history and sender-scoped long-term memory.
+delivers a webhook update to Lambda, Lambda validates and enqueues the request
+in an SQS FIFO queue, and an invoker Lambda calls an AgentCore runtime. A
+Strands agent generates the reply with access to recent conversation history
+and sender-scoped long-term memory before the invoker sends it back to Telegram.
 
 > This is an active learning project, not a production-ready bot. See
 > [Current constraints](#current-constraints) for the main limitations.
@@ -14,7 +15,6 @@ conversation history and sender-scoped long-term memory.
 ## Current capabilities
 
 - Accepts new text messages from one configured Telegram user (myself lol).
-- Rejects malformed payloads, edited messages, and messages from other users.
 - Runs the assistant as a containerized Bedrock AgentCore runtime.
 - Uses a configurable Amazon Bedrock model through Strands Agents.
 - Loads short-term memory (in the form of recent conversation turns) as context
@@ -31,27 +31,50 @@ conversation history and sender-scoped long-term memory.
 ## Architecture
 
 ```mermaid
-flowchart LR
+flowchart TB
     telegram[Telegram Bot API]
     webhook[AWS Lambda webhook]
+    queue[Amazon SQS FIFO queue]
+    invoker[AWS Lambda invoker]
     runtime[Bedrock AgentCore runtime]
     agent[Strands agent]
     model[Amazon Bedrock model]
     memory[AgentCore Memory]
 
-    telegram -->|Webhook update| webhook
-    webhook -->|Validated payload| runtime
+    telegram -->|Telegram message request| webhook
+    webhook -->|Validated and deduplicated job| queue
+    queue -->|FIFO message| invoker
+    invoker -->|Agent input| runtime
     runtime --> agent
     agent --> model
     agent <-->|Recent turns and semantic retrieval| memory
     runtime -->|Store completed turn| memory
-    runtime -->|Agent response| webhook
-    webhook -->|sendMessage response| telegram
+    runtime -->|Agent response| invoker
+    invoker -->|sendMessage request| telegram
 ```
 
-AgentCore Memory uses a stable session per Telegram sender. Its current memory
-configuration has a 7-day event expiry and built-in semantic and user-preference
-strategies under sender-specific namespaces.
+## Design considerations
+
+### Why the current runtime structure is asynchronous
+
+The first version sent validated Telegram updates directly from the webhook
+Lambda to the AgentCore runtime. That was simple, but it coupled Telegram's
+webhook request to model invocation, memory operations, and response generation.
+Due to Telegram's low HTTP request timeout (30s), slow agent processing risked
+exceeding the timeout and causing Telegram to retry the same message request before
+an agent response could be successfully generated.
+
+The current structure separates request receipt from request processing. The
+webhook Lambda authenticates and validates the telegram message request, places
+a job on SQS, and returns quickly. The invoker Lambda consumes the FIFO message,
+invokes the router agent, and sends the generated response back to Telegram. This
+provides a foundation for longer-running tasks and future specialized agents without
+making the webhook path responsible for the full response lifecycle.
+
+- Webhook Lambda remains lightweight and focused on authentication,
+  validation, and queueing.
+- SQS provides a durable handoff and preserves ordering for the single-user
+  conversation, with initial duplicate suppression through FIFO deduplication.
 
 ## Repository layout
 
@@ -61,13 +84,14 @@ strategies under sender-specific namespaces.
 |   ├─ environments/
 |   |   ├─ bootstrap/       # Versioned S3 Terraform state bucket
 |   |   └─ dev/             # Complete development stack
-|   └─ modules/             # ECR, image, Lambda, runtime, and memory modules
+|   └─ modules/             # ECR, image, IAM, Lambda, AgentCore etc...
 ├─ scripts/
 |   ├─ configure_telegram_webhook.py
 |   ├─ run_bootstrap.sh
 |   └─ run_build_dev.sh
 ├─ src/
 |   ├─ agentcore/router_agent/  # Strands agent and AgentCore container
+|   ├─ lambdas/invoker/         # SQS-triggered AgentCore invocation Lambda
 |   ├─ lambdas/webhook/         # Telegram webhook Lambda container
 |   └─ shared/                  # Shared schemas and memory service
 ├─ tests/                       # Unit and live integration tests
@@ -155,20 +179,16 @@ commands as destructive.
 
 - Only new text messages are handled; edited messages and non-text updates are
   ignored or rejected.
-- The bot is intentionally single-user and has no group-chat workflow.
+- The bot is intentionally single-user (I designed it with my personal use in mind).
 - The agent's only custom tool is long-term memory retrieval. It does not yet
-  call calendars, email, web search, or other external action services.
-- The Lambda Function URL uses `authorization_type = "NONE"`. Sender checks are
-  performed against fields in the request body, but the webhook does not yet
-  authenticate requests with a Telegram secret token or another trusted edge
-  control.
+  call other external tools.
 - Dependency versions are currently unpinned, and checks run locally rather than
   in a CI pipeline.
 
 ## Next steps
-1. More robust inbound auth to webhook lambda using a secret token comprising a hashed
-  value of my telegram bot api key.
-2. Create a read-only coding agent (invoked by my current router agent) with access
-  to my github thru external tooling.
-3. Idk and more...
-  
+
+1. Add response chunking to work around Telegram's message length limit.
+2. Add HTML response parse mode with safe formatting and escaping.
+3. Add durable request idempotency using a DynamoDB-backed update ledger.
+4. Create a read-only coding agent, invoked by the router agent, with access to
+   GitHub through external tooling.

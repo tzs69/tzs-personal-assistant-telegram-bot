@@ -10,12 +10,6 @@ variable "webhook_lambda_execution_role_name" {
   default     = "tzs-pa-tele-bot-dev-webhook-lambda-execution-role"
 }
 
-variable "agent_runtime_region" {
-  type    = string
-  default = "us-east-1"
-}
-
-
 # Injected during terraform workflow stuff
 variable "tele_pid" {
   type        = string
@@ -24,11 +18,8 @@ variable "tele_pid" {
 
 variable "tele_bot_api_key" {
   type        = string
+  sensitive   = true
   description = "Telegram bot API key/token"
-}
-variable "agent_runtime_arn" {
-  type        = string
-  description = "Derived from agent runtime module during terraform deployment workflow"
 }
 
 variable "webhook_lambda_image_uri" {
@@ -39,4 +30,14 @@ variable "webhook_lambda_image_uri" {
 variable "webhook_lambda_code_zip_sha" {
   type        = string
   description = "Derived from ecr module outputs during terraform deployment workflow"
+}
+
+variable "webhook_invoker_queue_arn" {
+  type        = string
+  description = "ARN of SQS queue between webhook lambda and invoker lambda"
+}
+
+variable "webhook_invoker_queue_url" {
+  type        = string
+  description = "ARN of SQS queue between webhook lambda and invoker lambda"
 }

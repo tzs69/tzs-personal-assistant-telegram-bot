@@ -1,16 +1,19 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 
 class InputValidationErrorResponse(BaseModel):
     sender_id: str | None = None
     error_msg: str | None = None
 
-class TelegramMessageUserInput(BaseModel):
+class TelegramMessageAgentInput(BaseModel):
     username: str | None = None
     sender_id: str
     text: str
     date: str
 
 class TelegramMessageAgentResponse(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
     text: str
-    error: BaseException | None = None
+
+class TelegramInvocationJob(BaseModel):
+    update_id: int
+    message_id: int
+    agent_input: TelegramMessageAgentInput

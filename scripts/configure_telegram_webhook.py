@@ -4,11 +4,12 @@ from pathlib import Path
 import requests
 import getopt
 import sys
+import hashlib
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 
 TELE_BOT_API_KEY = os.environ.get("TELE_BOT_API_KEY")
-
+secret_hash = hashlib.sha256(TELE_BOT_API_KEY.encode()).hexdigest()
 
 def main():
 
@@ -36,7 +37,10 @@ def main():
             print("WEBHOOK_LAMBDA_URL not set")
             sys.exit(1)
 
-        data = {"url": webhook_lambda_url}
+        data = {
+            "url": webhook_lambda_url,
+            "secret_token": secret_hash
+        }
 
     response = requests.post(configure_webhook_url, data=data)
 

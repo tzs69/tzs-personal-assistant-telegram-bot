@@ -30,6 +30,18 @@ variable "router_agent_image_tag_prefix" {
 }
 
 
+# Invoker lambda
+variable "invoker_lambda_ecr_repo_name" {
+  type        = string
+  description = "AWS ECR repository to store the built invoker lambda container image"
+}
+
+variable "invoker_lambda_image_tag_prefix" {
+  type    = string
+  default = "invoker-lambda"
+}
+
+
 # Webhook lambda
 variable "webhook_lambda_ecr_repo_name" {
   type        = string
