@@ -82,13 +82,16 @@ def invoke(payload):
         )
 
         with MCPClient(mcp_client_factory) as mcp_client:
+            router_agent_tools = [
+                tool for tool in mcp_client.list_tools_sync() if tool.tool_name.startswith("router-agent-tools___")
+            ]
             request_agent = Agent(
                 model=AGENT_RUNTIME_MODEL_ID,
                 system_prompt=system_prompt_formatted,
                 messages=short_term_messages,
                 tools=[
                     long_term_memory_tool,
-                    *mcp_client.list_tools_sync(),
+                    *router_agent_tools,
                 ]
             )
             response: AgentResult = request_agent(user_message.text)

@@ -31,7 +31,7 @@ def format_utc_date(date_utc: int) -> str:
 # =======================================================================
 
 
-def send_telegram_message(text: str, sender_id: str, timeout: int = 10) -> Dict:
+def send_telegram_message(text: str, sender_id: int, timeout: int = 10) -> Dict:
     tele_bot_url = f"https://api.telegram.org/bot{TELE_BOT_API_KEY}/sendMessage"
     payload_json = {
         "chat_id": sender_id,

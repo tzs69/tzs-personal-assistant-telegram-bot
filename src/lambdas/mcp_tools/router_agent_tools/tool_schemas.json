@@ -14,7 +14,7 @@
         },
         {
           "name": "sender_id",
-          "type": "string",
+          "type": "integer",
           "description": "Telegram chat identifier that receives the message.",
           "required": true
         }
