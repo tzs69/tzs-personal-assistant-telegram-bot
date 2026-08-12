@@ -41,6 +41,58 @@ variable "router_agent_model_id" {
 }
 
 
+# Shared AgentCore Gateway
+variable "agentcore_gateway_name" {
+  type        = string
+  description = "Name of the shared AgentCore Gateway"
+  default     = "tzs-pa-tele-bot-dev-shared-gateway"
+}
+
+variable "agentcore_gateway_execution_role_name" {
+  type        = string
+  description = "Name of the IAM execution role used by the shared AgentCore Gateway"
+  default     = "tzs-pa-tele-bot-dev-agentcore-gateway-execution-role"
+}
+
+variable "agentcore_gateway_description" {
+  type        = string
+  description = "Description of the shared AgentCore Gateway"
+  default     = "Shared gateway for agent tools and agent-to-agent communication"
+}
+
+
+# Router agent MCP tools Lambda (& deps) resource vars
+variable "router_agent_tools_ecr_repo_name" {
+  type        = string
+  description = "AWS ECR repository to store the router agent MCP tools Lambda image"
+  default     = "tzs-pa-tele-bot-dev-router-agent-tools-assets-repo"
+}
+
+variable "router_agent_tools_lambda_function_name" {
+  type        = string
+  description = "Name of the router agent MCP tools Lambda function"
+  default     = "tzs-pa-tele-bot-dev-router-agent-tools"
+}
+
+variable "router_agent_tools_lambda_execution_role_name" {
+  type        = string
+  description = "Name of the IAM execution role used by the router agent MCP tools Lambda"
+  default     = "tzs-pa-tele-bot-dev-router-agent-tools-lambda-execution-role"
+}
+
+variable "router_agent_tools_gateway_target_name" {
+  type        = string
+  description = "Name of the router agent tools target registered with the shared AgentCore Gateway"
+  default     = "router-agent-tools"
+}
+
+variable "router_agent_tools_gateway_target_description" {
+  type        = string
+  description = "Description of the router agent tools Gateway target"
+  default     = "MCP tools for the router agent"
+}
+
+
 # Invoker lambda (& deps) resource vars
 variable "invoker_lambda_function_name" {
   type        = string

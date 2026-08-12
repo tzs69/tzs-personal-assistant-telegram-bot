@@ -9,6 +9,17 @@ output "router_agent_image_digest" {
 }
 
 
+output "router_agent_tools_image_uri" {
+  value       = module.service_images["router_agent_tools"].image_uri
+  description = "Container image URI reference for router agent MCP tools Lambda provisioning"
+}
+
+output "router_agent_tools_image_digest" {
+  value       = module.service_images["router_agent_tools"].image_digest
+  description = "Image digest of ECR registry image for router agent MCP tools Lambda source code"
+}
+
+
 output "invoker_lambda_image_uri" {
   value       = module.service_images["invoker_lambda"].image_uri
   description = "container image uri reference for invoker lambda provisioning use"

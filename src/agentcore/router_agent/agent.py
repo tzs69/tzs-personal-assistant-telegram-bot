@@ -5,6 +5,9 @@ from typing import Dict, List
 from bedrock_agentcore import BedrockAgentCoreApp
 from strands import Agent
 from strands.agent import AgentResult
+from mcp_proxy_for_aws.client import aws_iam_streamablehttp_client
+from strands.tools.mcp.mcp_client import MCPClient
+
 from schemas import TelegramMessageAgentInput, TelegramMessageAgentResponse
 from agentcore_memory import MemoryManagementService
 from memory_tools import create_long_term_memory_tool
@@ -21,10 +24,19 @@ AGENT_MEMORY_ID = os.environ.get("AGENT_MEMORY_ID")
 AGENT_MEMORY_REGION = os.environ.get("AGENT_MEMORY_REGION", "us-east-1")
 MAX_SHORT_TERM_MEMORY_TURNS = 10
 
+AGENTCORE_GATEWAY_URL = os.environ.get("AGENTCORE_GATEWAY_URL") + "/mcp"
+AGENTCORE_GATEWAY_REGION = os.environ.get("AGENTCORE_GATEWAY_REGION")
+
 memory = MemoryManagementService(
     memory_id=AGENT_MEMORY_ID,
     region=AGENT_MEMORY_REGION,
     logger=logger
+)
+
+mcp_client_factory= lambda: aws_iam_streamablehttp_client(
+    endpoint=AGENTCORE_GATEWAY_URL,
+    aws_region=AGENTCORE_GATEWAY_REGION,
+    aws_service="bedrock-agentcore",
 )
 
 @app.entrypoint
@@ -55,6 +67,7 @@ def invoke(payload):
 
     logger.info(f"Valid AgentCore invocation payload received from webhook Lambda:\n{json.dumps(payload)}")
     user_message = TelegramMessageAgentInput.model_validate(payload)
+    system_prompt_formatted = SYSTEM_PROMPT.format(telegram_sender_id=user_message.sender_id)
 
     try:
         short_term_messages = memory.fetch_short_term_memories(
@@ -68,15 +81,20 @@ def invoke(payload):
             sender_id=str(user_message.sender_id)
         )
 
-        request_agent = Agent(
-            model=AGENT_RUNTIME_MODEL_ID,
-            system_prompt=SYSTEM_PROMPT,
-            messages=short_term_messages,
-            tools=[
-                long_term_memory_tool,
+        with MCPClient(mcp_client_factory) as mcp_client:
+            router_agent_tools = [
+                tool for tool in mcp_client.list_tools_sync() if tool.tool_name.startswith("router-agent-tools___")
             ]
-        )
-        response: AgentResult = request_agent(user_message.text)
+            request_agent = Agent(
+                model=AGENT_RUNTIME_MODEL_ID,
+                system_prompt=system_prompt_formatted,
+                messages=short_term_messages,
+                tools=[
+                    long_term_memory_tool,
+                    *router_agent_tools,
+                ]
+            )
+            response: AgentResult = request_agent(user_message.text)
 
     except Exception as e:
         return _raise_error_message_generic(

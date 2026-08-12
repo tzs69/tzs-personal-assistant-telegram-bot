@@ -15,10 +15,11 @@ terraform {
 }
 
 module "ecr" {
-  source                       = "../../modules/ecr"
-  router_agent_ecr_repo_name   = var.router_agent_ecr_repo_name
-  invoker_lambda_ecr_repo_name = var.invoker_lambda_ecr_repo_name
-  webhook_lambda_ecr_repo_name = var.webhook_lambda_ecr_repo_name
+  source                           = "../../modules/ecr"
+  router_agent_ecr_repo_name       = var.router_agent_ecr_repo_name
+  router_agent_tools_ecr_repo_name = var.router_agent_tools_ecr_repo_name
+  invoker_lambda_ecr_repo_name     = var.invoker_lambda_ecr_repo_name
+  webhook_lambda_ecr_repo_name     = var.webhook_lambda_ecr_repo_name
 }
 
 module "invoker_lambda_function" {
@@ -26,7 +27,6 @@ module "invoker_lambda_function" {
   invoker_lambda_function_name       = var.invoker_lambda_function_name
   invoker_lambda_execution_role_name = var.invoker_lambda_execution_role_name
   tele_pid                           = var.tele_pid
-  tele_bot_api_key                   = var.tele_bot_api_key
   agent_runtime_arn                  = module.router_agent.agent_runtime_arn
   agent_runtime_region               = var.router_agent_region
   invoker_lambda_image_uri           = module.ecr.invoker_lambda_image_uri
@@ -50,6 +50,46 @@ module "webhook_invoker_sqs" {
   source = "../../modules/sqs"
 }
 
+module "router_agent_tools_lambda" {
+  source = "../../modules/lambda/mcp_tools"
+
+  function_name       = var.router_agent_tools_lambda_function_name
+  execution_role_name = var.router_agent_tools_lambda_execution_role_name
+  image_uri           = module.ecr.router_agent_tools_image_uri
+  source_code_hash    = module.ecr.router_agent_tools_image_digest
+  architecture        = "x86_64"
+  timeout             = 60
+
+  environment_variables = {
+    TELE_BOT_API_KEY = var.tele_bot_api_key
+  }
+}
+
+module "agentcore_gateway" {
+  source = "../../modules/bedrock_agentcore/agentcore_gateway"
+
+  gateway_name                = var.agentcore_gateway_name
+  gateway_execution_role_name = var.agentcore_gateway_execution_role_name
+  gateway_description         = var.agentcore_gateway_description
+
+  lambda_target_arns = [
+    module.router_agent_tools_lambda.function_arn
+  ]
+}
+
+module "router_agent_tools_gateway_target" {
+  source = "../../modules/bedrock_agentcore/agentcore_gateway/lambda_mcp_target"
+
+  target_name        = var.router_agent_tools_gateway_target_name
+  target_description = var.router_agent_tools_gateway_target_description
+  gateway_id         = module.agentcore_gateway.gateway_id
+  lambda_arn         = module.router_agent_tools_lambda.function_arn
+
+  tool_schemas_json = file(
+    "${path.module}/../../../src/lambdas/mcp_tools/router_agent_tools/tool_schemas.json"
+  )
+}
+
 module "router_agent" {
   source                            = "../../modules/bedrock_agentcore/agent_runtime"
   agent_runtime_name                = var.router_agent_name
@@ -60,6 +100,13 @@ module "router_agent" {
   agent_memory_arn                  = module.agentcore_memory.agent_memory_arn
   agent_memory_id                   = module.agentcore_memory.agent_memory_id
   agent_memory_region               = module.agentcore_memory.agent_memory_region
+  agentcore_gateway_arn             = module.agentcore_gateway.gateway_arn
+  agentcore_gateway_url             = module.agentcore_gateway.gateway_url
+  agentcore_gateway_region          = var.router_agent_region
+
+  depends_on = [
+    module.router_agent_tools_gateway_target
+  ]
 }
 
 moved {

@@ -45,7 +45,6 @@ resource "aws_lambda_function" "invoker_lambda" {
     variables = {
       "AGENT_RUNTIME_ARN"    = var.agent_runtime_arn
       "AGENT_RUNTIME_REGION" = var.agent_runtime_region
-      "TELE_BOT_API_KEY"     = var.tele_bot_api_key
       "TELE_PID"             = var.tele_pid
     }
   }
