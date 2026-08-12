@@ -31,12 +31,12 @@ def test_send_telegram_message_posts_expected_request(handler_module, monkeypatc
     post = Mock(return_value=response)
     monkeypatch.setattr(handler_module.requests, "post", post)
 
-    result = handler_module.send_telegram_message("Hello", "123")
+    result = handler_module.send_telegram_message("Hello", 123)
 
     assert result == {"ok": True, "date": "01/01/1970 00:00"}
     post.assert_called_once_with(
         url="https://api.telegram.org/bottest-bot-api-key/sendMessage",
-        json={"chat_id": "123", "text": "Hello"},
+        json={"chat_id": 123, "text": "Hello"},
         timeout=10,
     )
     response.json.assert_called_once_with()
@@ -51,7 +51,7 @@ def test_send_telegram_message_returns_telegram_api_error(handler_module, monkey
     }
     monkeypatch.setattr(handler_module.requests, "post", Mock(return_value=response))
 
-    result = handler_module.send_telegram_message("Hello", "123")
+    result = handler_module.send_telegram_message("Hello", 123)
 
     assert result == {
         "ok": False,

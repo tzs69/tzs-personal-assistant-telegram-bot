@@ -27,7 +27,6 @@ module "invoker_lambda_function" {
   invoker_lambda_function_name       = var.invoker_lambda_function_name
   invoker_lambda_execution_role_name = var.invoker_lambda_execution_role_name
   tele_pid                           = var.tele_pid
-  tele_bot_api_key                   = var.tele_bot_api_key
   agent_runtime_arn                  = module.router_agent.agent_runtime_arn
   agent_runtime_region               = var.router_agent_region
   invoker_lambda_image_uri           = module.ecr.invoker_lambda_image_uri

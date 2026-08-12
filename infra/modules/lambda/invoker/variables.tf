@@ -38,9 +38,3 @@ variable "tele_pid" {
   type        = string
   description = "Telegram user ID. Use @userinfobot on to get."
 }
-
-variable "tele_bot_api_key" {
-  type        = string
-  sensitive   = true
-  description = "Telegram bot API key/token"
-}

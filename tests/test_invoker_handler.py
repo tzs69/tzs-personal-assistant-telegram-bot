@@ -6,10 +6,8 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
-import requests
 
 
-MOCK_TELE_BOT_API_KEY = "1234567890:ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 MOCK_TELE_PID = "123456789"
 MOCK_UPDATE_ID = 172376328
 MOCK_MESSAGE_ID = 67
@@ -22,7 +20,6 @@ def handler_module(monkeypatch):
     shared_src = repo_root / "src" / "shared"
     monkeypatch.syspath_prepend(str(shared_src))
 
-    monkeypatch.setenv("TELE_BOT_API_KEY", MOCK_TELE_BOT_API_KEY)
     monkeypatch.setenv("TELE_PID", MOCK_TELE_PID)
     monkeypatch.setenv("AGENT_RUNTIME_REGION", "us-east-1")
     monkeypatch.setenv("AGENT_RUNTIME_ARN", MOCK_AGENT_RUNTIME_ARN)
@@ -77,10 +74,7 @@ def successful_agentcore_client():
 
 
 def test_invoker_contract(handler_module, successful_agentcore_client, monkeypatch):
-    telegram_response = Mock()
     monkeypatch.setattr(handler_module, "agentcore_client", successful_agentcore_client)
-    telegram_post = Mock(return_value=telegram_response)
-    monkeypatch.setattr(handler_module.requests, "post", telegram_post)
 
     out = handler_module.handler(make_sqs_event(), None)
 
@@ -92,16 +86,6 @@ def test_invoker_contract(handler_module, successful_agentcore_client, monkeypat
     assert call["accept"] == "application/json"
     assert call["qualifier"] == "DEFAULT"
     assert json.loads(call["payload"]) == make_invocation_job()["agent_input"]
-
-    telegram_post.assert_called_once_with(
-        url=f"https://api.telegram.org/bot{MOCK_TELE_BOT_API_KEY}/sendMessage",
-        json={
-            "chat_id": MOCK_TELE_PID,
-            "text": "ok",
-        },
-        timeout=handler_module.TELE_BOT_REQUEST_TIMEOUT_SECONDS,
-    )
-    telegram_response.raise_for_status.assert_called_once_with()
 
 
 @pytest.mark.parametrize(
@@ -143,56 +127,6 @@ def test_handler_reraises_agentcore_failure(handler_module, monkeypatch):
     failing_client = Mock()
     failing_client.invoke_agent_runtime.side_effect = RuntimeError("boom")
     monkeypatch.setattr(handler_module, "agentcore_client", failing_client)
-    telegram_post = Mock()
-    monkeypatch.setattr(handler_module.requests, "post", telegram_post)
 
     with pytest.raises(RuntimeError, match="boom"):
-        handler_module.handler(make_sqs_event(), None)
-
-    telegram_post.assert_not_called()
-
-
-def test_handler_acknowledges_permanent_telegram_400(
-    handler_module,
-    successful_agentcore_client,
-    monkeypatch,
-):
-    telegram_response = Mock()
-    telegram_response.status_code = 400
-    telegram_response.text = '{"ok":false,"description":"Bad Request"}'
-    telegram_response.raise_for_status.side_effect = requests.HTTPError(
-        "400 Client Error: Bad Request",
-        response=telegram_response,
-    )
-    monkeypatch.setattr(handler_module, "agentcore_client", successful_agentcore_client)
-    monkeypatch.setattr(
-        handler_module.requests,
-        "post",
-        Mock(return_value=telegram_response),
-    )
-
-    out = handler_module.handler(make_sqs_event(), None)
-
-    assert out is None
-
-
-def test_handler_raises_for_retryable_telegram_failure(
-    handler_module,
-    successful_agentcore_client,
-    monkeypatch,
-):
-    telegram_response = Mock()
-    telegram_response.status_code = 500
-    telegram_response.raise_for_status.side_effect = requests.HTTPError(
-        "500 Server Error",
-        response=telegram_response,
-    )
-    monkeypatch.setattr(handler_module, "agentcore_client", successful_agentcore_client)
-    monkeypatch.setattr(
-        handler_module.requests,
-        "post",
-        Mock(return_value=telegram_response),
-    )
-
-    with pytest.raises(requests.HTTPError, match="500 Server Error"):
         handler_module.handler(make_sqs_event(), None)

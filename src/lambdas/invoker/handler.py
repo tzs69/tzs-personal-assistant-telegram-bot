@@ -5,15 +5,11 @@ import boto3
 from pydantic import ValidationError
 
 from typing import Dict
-import requests
-from schemas import TelegramMessageAgentResponse, TelegramInvocationJob
+from schemas import TelegramInvocationJob
 
 AGENT_RUNTIME_ARN = os.environ.get("AGENT_RUNTIME_ARN")
 AGENT_RUNTIME_REGION = os.environ.get("AGENT_RUNTIME_REGION", "us-east-1")
 TELE_PID = os.environ.get("TELE_PID")
-TELE_BOT_API_KEY=os.environ.get("TELE_BOT_API_KEY", "")
-TELE_BOT_URL = f"https://api.telegram.org/bot{TELE_BOT_API_KEY}/sendMessage"
-TELE_BOT_REQUEST_TIMEOUT_SECONDS = 10
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -38,7 +34,6 @@ def handler(event, context):
     for record in records:
         invocation_job = _validate_record(record=record)
         agent_input = invocation_job.agent_input
-        sender_id = agent_input.sender_id
 
         try:
             # Pass validated input to agent runtime for answer generation
@@ -53,33 +48,9 @@ def handler(event, context):
             logger.exception("AgentCore invocation failed")
             raise
 
-        response_body = response["response"].read().decode("utf-8")
-        agent_response = TelegramMessageAgentResponse.model_validate_json(response_body)
-        text = agent_response.text
-
-        
-        # TEMPORARY ONLY: WILL BE REMOVED ONCE RESPONSE CHUNKING IS IN PLACE
-        if len(text) > 4096:
-            text = text[:4096]
-
-
-        payload_json = {
-            "chat_id": sender_id,
-            "text": text
-        }
-        response = requests.post(
-            url=TELE_BOT_URL,
-            json=payload_json,
-            timeout=TELE_BOT_REQUEST_TIMEOUT_SECONDS
-        )
-        try:
-            response.raise_for_status()
-        except requests.HTTPError as error:
-            # Treat Telegram 400 responses as permanent failures so retries do not block the FIFO queue
-            if error.response is not None and error.response.status_code == 400:
-                logger.error(f"Permanent Telegram delivery failure: {error.response.text}")
-                return
-            raise
+        # Consume the AgentCore response body. Telegram delivery is handled by
+        # the router agent's send_telegram_message MCP tool.
+        response["response"].read()
 
 
 def _validate_record(
