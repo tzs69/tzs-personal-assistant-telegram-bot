@@ -2,3 +2,5 @@ pydantic
 bedrock-agentcore
 strands-agents
 mcp-proxy-for-aws
+aws-bedrock-token-generator
+openai

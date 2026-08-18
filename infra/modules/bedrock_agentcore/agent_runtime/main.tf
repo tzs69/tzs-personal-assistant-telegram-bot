@@ -33,6 +33,20 @@ data "aws_iam_policy_document" "agent_runtime_permissions" {
     ]
   }
   statement {
+    sid    = "BedrockMantleInferenceAccess"
+    effect = "Allow"
+    actions = [
+      "bedrock-mantle:CreateInference",
+      "bedrock-mantle:GetProject",
+      "bedrock-mantle:ListProjects",
+      "bedrock-mantle:ListTagsForResources",
+      "bedrock-mantle:CallWithBearerToken"
+    ]
+    resources = [
+      "*"
+    ]
+  }
+  statement {
     sid    = "MarketPlaceSubscriptionAccess"
     effect = "Allow"
     actions = [

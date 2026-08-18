@@ -15,7 +15,9 @@ dependencies = [
 dev = [
     "pytest",
     "requests",
-    "strands-agents"
+    "strands-agents",
+    "openai",
+    "aws-bedrock-token-generator"
 ]
 
 agentcore = [

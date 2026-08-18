@@ -7,6 +7,8 @@ from strands import Agent
 from strands.agent import AgentResult
 from mcp_proxy_for_aws.client import aws_iam_streamablehttp_client
 from strands.tools.mcp.mcp_client import MCPClient
+from strands.models.openai_responses import OpenAIResponsesModel
+from aws_bedrock_token_generator import provide_token
 
 from schemas import TelegramMessageAgentInput, TelegramMessageAgentResponse
 from agentcore_memory import MemoryManagementService
@@ -26,6 +28,14 @@ MAX_SHORT_TERM_MEMORY_TURNS = 10
 
 AGENTCORE_GATEWAY_URL = os.environ.get("AGENTCORE_GATEWAY_URL") + "/mcp"
 AGENTCORE_GATEWAY_REGION = os.environ.get("AGENTCORE_GATEWAY_REGION")
+
+model: str | OpenAIResponsesModel = OpenAIResponsesModel(
+    model_id=AGENT_RUNTIME_MODEL_ID,
+    client_args={
+        "api_key": provide_token(region="us-east-1"),
+        "base_url": f"https://bedrock-mantle.us-east-1.api.aws/openai/v1",
+    }
+) if AGENT_RUNTIME_MODEL_ID.startswith("openai.") else AGENT_RUNTIME_MODEL_ID
 
 memory = MemoryManagementService(
     memory_id=AGENT_MEMORY_ID,
@@ -86,7 +96,7 @@ def invoke(payload):
                 tool for tool in mcp_client.list_tools_sync() if tool.tool_name.startswith("router-agent-tools___")
             ]
             request_agent = Agent(
-                model=AGENT_RUNTIME_MODEL_ID,
+                model=model,
                 system_prompt=system_prompt_formatted,
                 messages=short_term_messages,
                 tools=[
